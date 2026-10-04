@@ -1,0 +1,781 @@
+{
+  "network": "studio-next",
+  "chain_id": 61997,
+  "rpc_url": "https://studio-next.genlayer.com/api",
+  "contract_address": "0x632B117d0096277a4aA132bCa909d11841a5A225",
+  "explorer_url": "https://explorer-studio-next.genlayer.com/address/0x632B117d0096277a4aA132bCa909d11841a5A225",
+  "source": "contracts/phish_patrol.py",
+  "runner": "py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng",
+  "source_sha256_at_record": "9b2efcb332d3438aa44b2f02e54699401c206f8ab8fc641e3620ef4c1e9a322e",
+  "deployed_at": "2026-10-04T09:15:51+00:00",
+  "governor": "0xBc185f2ec8937f1299c052632eafd3bf8AE0b602",
+  "deploy": {
+    "tx_hash": "0xd52a4e014b60aab21caaa6897f69e7281b27d1325aa076f3a895e58243241d29",
+    "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0xd52a4e014b60aab21caaa6897f69e7281b27d1325aa076f3a895e58243241d29",
+    "execution_result": "FINISHED_WITH_RETURN",
+    "consensus_result": "MAJORITY_AGREE",
+    "validator_votes": {
+      "AGREE": 3,
+      "IDLE": 2
+    },
+    "votes_by_validator": {
+      "0x1dA3a7de8EA65A318bf88Eb63d3dC55295Dd257E": "AGREE",
+      "0x5A4230B920b18c4AFD3A28F99Eae669B7F2cdC1e": "IDLE",
+      "0xEEcEC5D1E07Ee40f5cb85aF922178Dc01278013C": "AGREE",
+      "0xcF5Fd792Df0Dc9d297af75c82B4A0011e8FA1A4A": "AGREE",
+      "0xf13c3DfE38C8E206C33F750C24a1b043b63Cb810": "IDLE"
+    },
+    "leader": "0x5A4230B920b18c4AFD3A28F99Eae669B7F2cdC1e",
+    "no_dissent": true,
+    "contract_state_hashes": [
+      "7c8f024add54d80d6c7ce70d5a91b4155b6880b6d8f914959875dd8ec57f4870"
+    ],
+    "state_hashes_identical": true
+  },
+  "genesis_overview": {
+    "balance": 0,
+    "brand_count": 0,
+    "governor": "0xBc185f2ec8937f1299c052632eafd3bf8AE0b602",
+    "pending_count": 0,
+    "protocol_vault": 0,
+    "report_count": 0,
+    "solvent": true,
+    "total_bounties": 0,
+    "total_claimable": 0,
+    "total_locked_bonds": 0,
+    "tracked": 0
+  },
+  "live_cases": [
+    {
+      "case": 1,
+      "title": "Register brand Uniswap (uniswap.org, app.uniswap.org), seed 0.5 GEN",
+      "status": "PASS",
+      "txs": [
+        {
+          "label": "register_brand",
+          "tx_hash": "0x3389148279dcdbc6abc5da4ecffe41e20e63cab142d5f56278d5063beb6eb92e",
+          "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0x3389148279dcdbc6abc5da4ecffe41e20e63cab142d5f56278d5063beb6eb92e",
+          "execution_result": "FINISHED_WITH_RETURN",
+          "consensus_result": "MAJORITY_AGREE",
+          "validator_votes": {
+            "AGREE": 3,
+            "IDLE": 2
+          },
+          "votes_by_validator": {
+            "0x05d8aFc66B515038712537f99cAAEA73d16f0007": "AGREE",
+            "0x1dA3a7de8EA65A318bf88Eb63d3dC55295Dd257E": "AGREE",
+            "0x6760cDeC573cf38568C59872ee48B6fED41F8A4c": "IDLE",
+            "0x8142E5D1b04f84c3cD995C25AAe31B31F8e0379E": "AGREE",
+            "0xcF5Fd792Df0Dc9d297af75c82B4A0011e8FA1A4A": "IDLE"
+          },
+          "leader": "0xcF5Fd792Df0Dc9d297af75c82B4A0011e8FA1A4A",
+          "no_dissent": true,
+          "rotations": 0,
+          "contract_state_hashes": [
+            "9115768de56b830b1b12060ed8f48989d79382d7e308367d580c5f7cc95c43e4"
+          ],
+          "state_hashes_identical": true,
+          "returned": "\t"
+        }
+      ],
+      "checks": [
+        {
+          "check": "brand_id",
+          "value": "1",
+          "expected": "1",
+          "ok": true
+        },
+        {
+          "check": "brand_name",
+          "value": "Uniswap",
+          "expected": "Uniswap",
+          "ok": true
+        },
+        {
+          "check": "canonical_domains",
+          "value": "['uniswap.org', 'app.uniswap.org']",
+          "expected": "['uniswap.org', 'app.uniswap.org']",
+          "ok": true
+        },
+        {
+          "check": "bounty_pool",
+          "value": "500000000000000000",
+          "expected": "500000000000000000",
+          "ok": true
+        },
+        {
+          "check": "is_active",
+          "value": "True",
+          "expected": "True",
+          "ok": true
+        },
+        {
+          "check": "total_bounties delta",
+          "value": "500000000000000000",
+          "expected": "500000000000000000",
+          "ok": true
+        },
+        {
+          "check": "contract balance delta",
+          "value": "500000000000000000",
+          "expected": "500000000000000000",
+          "ok": true
+        },
+        {
+          "check": "solvent",
+          "value": "True",
+          "expected": "True",
+          "ok": true
+        }
+      ],
+      "brand": {
+        "bounty_pool": 500000000000000000,
+        "brand_id": 1,
+        "brand_name": "Uniswap",
+        "canonical_domains": [
+          "uniswap.org",
+          "app.uniswap.org"
+        ],
+        "created_at": 1791105405,
+        "is_active": true,
+        "owner": "0xd149E8BcA394F2a931eac449DF7dE7c11a775CA1",
+        "pending_reports": 0
+      }
+    },
+    {
+      "case": 2,
+      "title": "Register brand MetaMask (metamask.io), seed 0.5 GEN",
+      "status": "PASS",
+      "txs": [
+        {
+          "label": "register_brand",
+          "tx_hash": "0x4fbc4119196a367ac0c8ef5eed9b6dabef2507c6da84cf8329f5b3565c78a632",
+          "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0x4fbc4119196a367ac0c8ef5eed9b6dabef2507c6da84cf8329f5b3565c78a632",
+          "execution_result": "FINISHED_WITH_RETURN",
+          "consensus_result": "MAJORITY_AGREE",
+          "validator_votes": {
+            "IDLE": 2,
+            "AGREE": 3
+          },
+          "votes_by_validator": {
+            "0x5cDf4BdDeEDa0e32ED596b94f69AcC0FbB57f264": "IDLE",
+            "0x6760cDeC573cf38568C59872ee48B6fED41F8A4c": "AGREE",
+            "0x8D32eb5D0207f7E230C45e7BF0D14B2ED5DA3028": "IDLE",
+            "0xE52dDB85587585930b1E5f1Fe88fef21CcA49829": "AGREE",
+            "0xa0435f618c1F27B254998018AEa8Da5C77187852": "AGREE"
+          },
+          "leader": "0xE52dDB85587585930b1E5f1Fe88fef21CcA49829",
+          "no_dissent": true,
+          "rotations": 0,
+          "contract_state_hashes": [
+            "c5df45c23129194b0bdbc509fa934fd25918c0a805cc6ce1af2d5b21b78cdcd8"
+          ],
+          "state_hashes_identical": true,
+          "returned": "\u0011"
+        }
+      ],
+      "checks": [
+        {
+          "check": "brand_id",
+          "value": "2",
+          "expected": "2",
+          "ok": true
+        },
+        {
+          "check": "brand_name",
+          "value": "MetaMask",
+          "expected": "MetaMask",
+          "ok": true
+        },
+        {
+          "check": "canonical_domains",
+          "value": "['metamask.io']",
+          "expected": "['metamask.io']",
+          "ok": true
+        },
+        {
+          "check": "bounty_pool",
+          "value": "500000000000000000",
+          "expected": "500000000000000000",
+          "ok": true
+        },
+        {
+          "check": "is_active",
+          "value": "True",
+          "expected": "True",
+          "ok": true
+        },
+        {
+          "check": "total_bounties delta",
+          "value": "500000000000000000",
+          "expected": "500000000000000000",
+          "ok": true
+        },
+        {
+          "check": "contract balance delta",
+          "value": "500000000000000000",
+          "expected": "500000000000000000",
+          "ok": true
+        },
+        {
+          "check": "solvent",
+          "value": "True",
+          "expected": "True",
+          "ok": true
+        }
+      ],
+      "brand": {
+        "bounty_pool": 500000000000000000,
+        "brand_id": 2,
+        "brand_name": "MetaMask",
+        "canonical_domains": [
+          "metamask.io"
+        ],
+        "created_at": 1791105423,
+        "is_active": true,
+        "owner": "0xd149E8BcA394F2a931eac449DF7dE7c11a775CA1",
+        "pending_reports": 0
+      }
+    },
+    {
+      "case": 3,
+      "title": "Confirmed phishing: brand mimic -> blacklisted + bounty paid",
+      "status": "PASS",
+      "txs": [
+        {
+          "label": "report_phishing",
+          "tx_hash": "0xc2df210d4cd0db6034a74626468628b2321bb3a86cf5818fc0e2ae36fa4ca6c9",
+          "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0xc2df210d4cd0db6034a74626468628b2321bb3a86cf5818fc0e2ae36fa4ca6c9",
+          "execution_result": "FINISHED_WITH_RETURN",
+          "consensus_result": "MAJORITY_AGREE",
+          "validator_votes": {
+            "AGREE": 3,
+            "IDLE": 2
+          },
+          "votes_by_validator": {
+            "0x5A4230B920b18c4AFD3A28F99Eae669B7F2cdC1e": "AGREE",
+            "0x5cDf4BdDeEDa0e32ED596b94f69AcC0FbB57f264": "IDLE",
+            "0x8142E5D1b04f84c3cD995C25AAe31B31F8e0379E": "AGREE",
+            "0xcF5Fd792Df0Dc9d297af75c82B4A0011e8FA1A4A": "IDLE",
+            "0xf13c3DfE38C8E206C33F750C24a1b043b63Cb810": "AGREE"
+          },
+          "leader": "0xf13c3DfE38C8E206C33F750C24a1b043b63Cb810",
+          "no_dissent": true,
+          "rotations": 0,
+          "contract_state_hashes": [
+            "c0a058eb12e2f5bfd4156bc2ae3005a4de20e747b3222d22fc132ff10c0644b7"
+          ],
+          "state_hashes_identical": true,
+          "returned": "\t"
+        },
+        {
+          "label": "adjudicate_report attempt 1",
+          "tx_hash": "0x9c356ceaf2ba84f4970c15ccf2cd1b15b543231a01e97350b187d9cf2a8dca34",
+          "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0x9c356ceaf2ba84f4970c15ccf2cd1b15b543231a01e97350b187d9cf2a8dca34",
+          "execution_result": "FINISHED_WITH_RETURN",
+          "consensus_result": "MAJORITY_AGREE",
+          "validator_votes": {
+            "AGREE": 3,
+            "IDLE": 2
+          },
+          "votes_by_validator": {
+            "0x8142E5D1b04f84c3cD995C25AAe31B31F8e0379E": "AGREE",
+            "0x8D32eb5D0207f7E230C45e7BF0D14B2ED5DA3028": "IDLE",
+            "0xA793D9dc0ED9edC1f9F732bB68b5D3AFA934F52D": "AGREE",
+            "0xcbC79F96B7A275b23EE64d80a98325107F6E1b77": "IDLE",
+            "0xf13c3DfE38C8E206C33F750C24a1b043b63Cb810": "AGREE"
+          },
+          "leader": "0x8142E5D1b04f84c3cD995C25AAe31B31F8e0379E",
+          "no_dissent": true,
+          "rotations": 0,
+          "contract_state_hashes": [
+            "529e0cb9935f8a4b3fab53b32e8dfe79eeba2564a8636b70fa79cf51ff45923a"
+          ],
+          "state_hashes_identical": true,
+          "returned": "\ufffd\u0001CONFIRMED_PHISHING"
+        }
+      ],
+      "checks": [
+        {
+          "check": "verdict",
+          "value": "CONFIRMED_PHISHING",
+          "expected": "CONFIRMED_PHISHING",
+          "ok": true
+        },
+        {
+          "check": "status",
+          "value": "1",
+          "expected": "1",
+          "ok": true
+        },
+        {
+          "check": "is_phishing(url)",
+          "value": "True",
+          "expected": "True",
+          "ok": true
+        },
+        {
+          "check": "bond refunded + 20% reward credited",
+          "value": "200000000000000000",
+          "expected": "200000000000000000",
+          "ok": true
+        },
+        {
+          "check": "brand pool after reward",
+          "value": "400000000000000000",
+          "expected": "400000000000000000",
+          "ok": true
+        },
+        {
+          "check": "total_locked_bonds delta",
+          "value": "0",
+          "expected": "0",
+          "ok": true
+        },
+        {
+          "check": "solvent",
+          "value": "True",
+          "expected": "True",
+          "ok": true
+        }
+      ],
+      "report_id": 1,
+      "report": {
+        "bond_amount": 100000000000000000,
+        "brand_id": 1,
+        "canonical_host": "pants-continental-better-warm.trycloudflare.com",
+        "consensus_reasoning": "The host is an unrelated trycloudflare subdomain with no lexical resemblance to Uniswap or its official domains, so typo-squatting evidence is minimal. However, the page heavily impersonates Uniswap by using the brand name and an 'official airdrop portal' claim, while explicitly requesting a 12/24-word recovery phrase and unlimited approvals, which are hallmark wallet-drainer behaviors.",
+        "exec_failures": 0,
+        "impersonation_score": 95,
+        "lexical_score": 2,
+        "malicious_score": 100,
+        "report_id": 1,
+        "reporter": "0xfaA86dE4297B56399429205312172fD0468C5D73",
+        "resolved_at": 1791105466,
+        "status": 1,
+        "suspect_url": "https://pants-continental-better-warm.trycloudflare.com/uniswap_claim_fixture.html",
+        "timestamp": 1791105443,
+        "verdict": "CONFIRMED_PHISHING"
+      }
+    },
+    {
+      "case": 4,
+      "title": "False positive: official benign Uniswap page -> rejected, bond slashed 50/50",
+      "status": "PASS",
+      "txs": [
+        {
+          "label": "report_phishing",
+          "tx_hash": "0xa5c89fbd5d5f9a5bd3c5354a35290fabf1ee7d92f3ffe2e30b87dd7de9194c9c",
+          "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0xa5c89fbd5d5f9a5bd3c5354a35290fabf1ee7d92f3ffe2e30b87dd7de9194c9c",
+          "execution_result": "FINISHED_WITH_RETURN",
+          "consensus_result": "MAJORITY_AGREE",
+          "validator_votes": {
+            "AGREE": 3,
+            "IDLE": 2
+          },
+          "votes_by_validator": {
+            "0x05d8aFc66B515038712537f99cAAEA73d16f0007": "AGREE",
+            "0x8142E5D1b04f84c3cD995C25AAe31B31F8e0379E": "AGREE",
+            "0x8D32eb5D0207f7E230C45e7BF0D14B2ED5DA3028": "AGREE",
+            "0xcEf1Baa172d0b4D99Dcc505B36332F26D1088025": "IDLE",
+            "0xcbC79F96B7A275b23EE64d80a98325107F6E1b77": "IDLE"
+          },
+          "leader": "0x8142E5D1b04f84c3cD995C25AAe31B31F8e0379E",
+          "no_dissent": true,
+          "rotations": 0,
+          "contract_state_hashes": [
+            "348a304bbdece680333a3482efd984e8f41a068824f538eb319fc4b5fb01feab"
+          ],
+          "state_hashes_identical": true,
+          "returned": "\u0011"
+        },
+        {
+          "label": "adjudicate_report attempt 1",
+          "tx_hash": "0xe8c51595a4cab10860324b37821cbfc04408b7481acd622be142094d78c305cf",
+          "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0xe8c51595a4cab10860324b37821cbfc04408b7481acd622be142094d78c305cf",
+          "execution_result": "FINISHED_WITH_RETURN",
+          "consensus_result": "MAJORITY_AGREE",
+          "validator_votes": {
+            "AGREE": 3,
+            "IDLE": 2
+          },
+          "votes_by_validator": {
+            "0x5A4230B920b18c4AFD3A28F99Eae669B7F2cdC1e": "AGREE",
+            "0x5cDf4BdDeEDa0e32ED596b94f69AcC0FbB57f264": "IDLE",
+            "0x8142E5D1b04f84c3cD995C25AAe31B31F8e0379E": "AGREE",
+            "0xE4E106086F167D75E2270fa5f3680f6ac598d179": "AGREE",
+            "0xf13c3DfE38C8E206C33F750C24a1b043b63Cb810": "IDLE"
+          },
+          "leader": "0x5A4230B920b18c4AFD3A28F99Eae669B7F2cdC1e",
+          "no_dissent": true,
+          "rotations": 0,
+          "contract_state_hashes": [
+            "841acf3d4768da28c90bda71c7cf82f7486f7d5aded22143b26b29d844a799dc"
+          ],
+          "state_hashes_identical": true,
+          "returned": "\ufffd\u0001REJECTED_FALSE_POSITIVE"
+        }
+      ],
+      "checks": [
+        {
+          "check": "verdict",
+          "value": "REJECTED_FALSE_POSITIVE",
+          "expected": "REJECTED_FALSE_POSITIVE",
+          "ok": true
+        },
+        {
+          "check": "status",
+          "value": "2",
+          "expected": "2",
+          "ok": true
+        },
+        {
+          "check": "is_phishing(url)",
+          "value": "False",
+          "expected": "False",
+          "ok": true
+        },
+        {
+          "check": "50% of bond to brand pool",
+          "value": "50000000000000000",
+          "expected": "50000000000000000",
+          "ok": true
+        },
+        {
+          "check": "50% of bond to protocol vault",
+          "value": "50000000000000000",
+          "expected": "50000000000000000",
+          "ok": true
+        },
+        {
+          "check": "reporter credit unchanged",
+          "value": "200000000000000000",
+          "expected": "200000000000000000",
+          "ok": true
+        },
+        {
+          "check": "solvent",
+          "value": "True",
+          "expected": "True",
+          "ok": true
+        }
+      ],
+      "report_id": 2,
+      "report": {
+        "bond_amount": 100000000000000000,
+        "brand_id": 1,
+        "canonical_host": "blog.uniswap.org",
+        "consensus_reasoning": "The host blog.uniswap.org contains the exact brand name without typos, hyphens, or homoglyphs, resulting in a low lexical similarity score. The page content is a legitimate Uniswap blog with no phishing forms or drainer signatures, so impersonation and malicious scores are minimal.",
+        "exec_failures": 0,
+        "impersonation_score": 5,
+        "lexical_score": 5,
+        "malicious_score": 0,
+        "report_id": 2,
+        "reporter": "0xfaA86dE4297B56399429205312172fD0468C5D73",
+        "resolved_at": 1791105559,
+        "status": 2,
+        "suspect_url": "https://blog.uniswap.org/",
+        "timestamp": 1791105503,
+        "verdict": "REJECTED_FALSE_POSITIVE"
+      }
+    },
+    {
+      "case": 5,
+      "title": "Unreachable / 404 page -> AMBIGUOUS_VOID, 80/20 fee split",
+      "status": "PASS",
+      "txs": [
+        {
+          "label": "report_phishing",
+          "tx_hash": "0xe98ffecaafeceeec3a907b94d2422e402036198a99836787240263689e13b0b5",
+          "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0xe98ffecaafeceeec3a907b94d2422e402036198a99836787240263689e13b0b5",
+          "execution_result": "FINISHED_WITH_RETURN",
+          "consensus_result": "MAJORITY_AGREE",
+          "validator_votes": {
+            "AGREE": 3,
+            "IDLE": 2
+          },
+          "votes_by_validator": {
+            "0x6760cDeC573cf38568C59872ee48B6fED41F8A4c": "AGREE",
+            "0xE52dDB85587585930b1E5f1Fe88fef21CcA49829": "AGREE",
+            "0xEEcEC5D1E07Ee40f5cb85aF922178Dc01278013C": "IDLE",
+            "0xcEf1Baa172d0b4D99Dcc505B36332F26D1088025": "IDLE",
+            "0xcbC79F96B7A275b23EE64d80a98325107F6E1b77": "AGREE"
+          },
+          "leader": "0x6760cDeC573cf38568C59872ee48B6fED41F8A4c",
+          "no_dissent": true,
+          "rotations": 0,
+          "contract_state_hashes": [
+            "a5c0f06214827868284703462effe32505a649bafc6be906cd87742a2972daae"
+          ],
+          "state_hashes_identical": true,
+          "returned": "\u0019"
+        },
+        {
+          "label": "adjudicate_report attempt 1",
+          "tx_hash": "0xcbc7d841b6d129276ee014da7c56b1fe85d9c844a7481929871cc1f2512f5eb1",
+          "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0xcbc7d841b6d129276ee014da7c56b1fe85d9c844a7481929871cc1f2512f5eb1",
+          "execution_result": "FINISHED_WITH_RETURN",
+          "consensus_result": "MAJORITY_AGREE",
+          "validator_votes": {
+            "AGREE": 3,
+            "IDLE": 2
+          },
+          "votes_by_validator": {
+            "0x6760cDeC573cf38568C59872ee48B6fED41F8A4c": "AGREE",
+            "0x8D32eb5D0207f7E230C45e7BF0D14B2ED5DA3028": "AGREE",
+            "0xE52dDB85587585930b1E5f1Fe88fef21CcA49829": "IDLE",
+            "0xcbC79F96B7A275b23EE64d80a98325107F6E1b77": "IDLE",
+            "0xf13c3DfE38C8E206C33F750C24a1b043b63Cb810": "AGREE"
+          },
+          "leader": "0x6760cDeC573cf38568C59872ee48B6fED41F8A4c",
+          "no_dissent": true,
+          "rotations": 0,
+          "contract_state_hashes": [
+            "80254340a98aacfdeb00e6c71ad882cb3967f09ce93e7dad1fc6ca8943f58db6"
+          ],
+          "state_hashes_identical": true,
+          "returned": "tAMBIGUOUS_VOID"
+        }
+      ],
+      "checks": [
+        {
+          "check": "verdict",
+          "value": "AMBIGUOUS_VOID",
+          "expected": "AMBIGUOUS_VOID",
+          "ok": true
+        },
+        {
+          "check": "status",
+          "value": "3",
+          "expected": "3",
+          "ok": true
+        },
+        {
+          "check": "is_phishing(url)",
+          "value": "False",
+          "expected": "False",
+          "ok": true
+        },
+        {
+          "check": "20% bandwidth fee to vault",
+          "value": "20000000000000000",
+          "expected": "20000000000000000",
+          "ok": true
+        },
+        {
+          "check": "80% refund credited",
+          "value": "80000000000000000",
+          "expected": "80000000000000000",
+          "ok": true
+        },
+        {
+          "check": "solvent",
+          "value": "True",
+          "expected": "True",
+          "ok": true
+        }
+      ],
+      "report_id": 3,
+      "report": {
+        "bond_amount": 100000000000000000,
+        "brand_id": 1,
+        "canonical_host": "example.com",
+        "consensus_reasoning": "Suspect host answered HTTP 404; nothing to assess.",
+        "exec_failures": 0,
+        "impersonation_score": 0,
+        "lexical_score": 0,
+        "malicious_score": 0,
+        "report_id": 3,
+        "reporter": "0xfaA86dE4297B56399429205312172fD0468C5D73",
+        "resolved_at": 1791105623,
+        "status": 3,
+        "suspect_url": "https://example.com/phishpatrol-uniswap-claim-404",
+        "timestamp": 1791105606,
+        "verdict": "AMBIGUOUS_VOID"
+      }
+    }
+  ],
+  "predecessors": [
+    {
+      "contract_address": "0x2705D49f5DfAF983950bE80ca74996F4a62E28bE",
+      "explorer_url": "https://explorer-studio-next.genlayer.com/address/0x2705D49f5DfAF983950bE80ca74996F4a62E28bE",
+      "source_sha256_at_record": "9b2efcb332d3438aa44b2f02e54699401c206f8ab8fc641e3620ef4c1e9a322e",
+      "deployed_at": "2026-10-04T08:40:32+00:00"
+    }
+  ],
+  "settlement": {
+    "txs": [
+      {
+        "label": "pull_withdraw",
+        "tx_hash": "0x788a09e79b700a919365b18f5f01ae2a2f33347ed5f7d2189863bda9826463d4",
+        "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0x788a09e79b700a919365b18f5f01ae2a2f33347ed5f7d2189863bda9826463d4",
+        "execution_result": "FINISHED_WITH_RETURN",
+        "consensus_result": "MAJORITY_AGREE",
+        "validator_votes": {
+          "IDLE": 2,
+          "AGREE": 3
+        },
+        "votes_by_validator": {
+          "0x05d8aFc66B515038712537f99cAAEA73d16f0007": "IDLE",
+          "0x6760cDeC573cf38568C59872ee48B6fED41F8A4c": "IDLE",
+          "0xA793D9dc0ED9edC1f9F732bB68b5D3AFA934F52D": "AGREE",
+          "0xcEf1Baa172d0b4D99Dcc505B36332F26D1088025": "AGREE",
+          "0xcF5Fd792Df0Dc9d297af75c82B4A0011e8FA1A4A": "AGREE"
+        },
+        "leader": "0xcEf1Baa172d0b4D99Dcc505B36332F26D1088025",
+        "no_dissent": true,
+        "rotations": 0,
+        "contract_state_hashes": [
+          "8d387e4caf126b21c13770e8aa6280ab9f2163a546c9299c7fbb0b4a43b96e9b"
+        ],
+        "state_hashes_identical": true,
+        "returned": "\ufffd\ufffd\ufffd\u01dc\ufffd\ufffd\ufffd"
+      },
+      {
+        "label": "sweep_vault",
+        "tx_hash": "0x7fd460d9a8b3804b9e82663d645147a35cd6c564f03cbd4a7fe90952d7b679b4",
+        "explorer_url": "https://explorer-studio-next.genlayer.com/tx/0x7fd460d9a8b3804b9e82663d645147a35cd6c564f03cbd4a7fe90952d7b679b4",
+        "execution_result": "FINISHED_WITH_RETURN",
+        "consensus_result": "MAJORITY_AGREE",
+        "validator_votes": {
+          "AGREE": 3,
+          "IDLE": 2
+        },
+        "votes_by_validator": {
+          "0x8142E5D1b04f84c3cD995C25AAe31B31F8e0379E": "AGREE",
+          "0xA793D9dc0ED9edC1f9F732bB68b5D3AFA934F52D": "IDLE",
+          "0xE4E106086F167D75E2270fa5f3680f6ac598d179": "IDLE",
+          "0xa0435f618c1F27B254998018AEa8Da5C77187852": "AGREE",
+          "0xf13c3DfE38C8E206C33F750C24a1b043b63Cb810": "AGREE"
+        },
+        "leader": "0xE4E106086F167D75E2270fa5f3680f6ac598d179",
+        "no_dissent": true,
+        "rotations": 0,
+        "contract_state_hashes": [
+          "ae6df7a84711ebd5620694fff2ec862573f43ba8a19958a7148560cbca916e94"
+        ],
+        "state_hashes_identical": true,
+        "returned": "\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\u0007"
+      }
+    ],
+    "checks": [
+      {
+        "check": "reporter credit before withdraw",
+        "value": "True",
+        "expected": "True",
+        "ok": true
+      },
+      {
+        "check": "credit after withdraw",
+        "value": "0",
+        "expected": "0",
+        "ok": true
+      },
+      {
+        "check": "protocol_vault after sweep",
+        "value": "0",
+        "expected": "0",
+        "ok": true
+      },
+      {
+        "check": "contract accounting after withdraw + sweep: credits and vault debited",
+        "value": "{\"total_claimable\": \"0\", \"protocol_vault\": \"0\"}",
+        "expected": "0, 0",
+        "ok": true
+      }
+    ],
+    "credit_withdrawn": "280000000000000000",
+    "vault_swept": "70000000000000000",
+    "transfer_effects": [
+      {
+        "tx": "pull_withdraw",
+        "value": "280000000000000000",
+        "phase": "finalized",
+        "skipped": true,
+        "declaredBudget": 0
+      },
+      {
+        "tx": "sweep_vault",
+        "value": "70000000000000000",
+        "phase": "finalized",
+        "skipped": true,
+        "declaredBudget": 0
+      }
+    ],
+    "transfers_delivered": false,
+    "surplus_wei": "350000000000000000",
+    "overview_after": {
+      "balance": 1300000000000000000,
+      "brand_count": 2,
+      "governor": "0xBc185f2ec8937f1299c052632eafd3bf8AE0b602",
+      "pending_count": 0,
+      "protocol_vault": 0,
+      "report_count": 3,
+      "solvent": false,
+      "total_bounties": 950000000000000000,
+      "total_claimable": 0,
+      "total_locked_bonds": 0,
+      "tracked": 950000000000000000
+    },
+    "status": "TRANSFER_SKIPPED_BY_PLATFORM",
+    "note": "Studio Next marked each emit_transfer message skipped (declaredBudget 0) and returned the value to the contract: the debit happened, the payout did not. balance - tracked is the undelivered amount; it is never a deficit. See README section 8."
+  },
+  "final_overview": {
+    "balance": 1300000000000000000,
+    "brand_count": 2,
+    "governor": "0xBc185f2ec8937f1299c052632eafd3bf8AE0b602",
+    "pending_count": 0,
+    "protocol_vault": 0,
+    "report_count": 3,
+    "solvent": false,
+    "total_bounties": 950000000000000000,
+    "total_claimable": 0,
+    "total_locked_bonds": 0,
+    "tracked": 950000000000000000
+  },
+  "accounts": {
+    "governor": "0xBc185f2ec8937f1299c052632eafd3bf8AE0b602",
+    "brand_owner": "0xd149E8BcA394F2a931eac449DF7dE7c11a775CA1",
+    "reporter": "0xfaA86dE4297B56399429205312172fD0468C5D73"
+  },
+  "live_run_at": "2026-10-04T09:21:48+00:00",
+  "platform_findings": {
+    "emit_transfer_to_eoa_is_skipped_on_studio_next": {
+      "summary": "On Studio Next, gl.chain.Account(eoa).emit_transfer(value, on='finalized') reaches the finalized phase but the message is marked skipped (declaredBudget 0) and the value is returned to the emitting contract. The transaction succeeds and the contract's own debit is applied, but the recipient is not paid. gl.chain.Account(...).emit_transfer(on='accepted') fails with FINISHED_WITH_ERROR. The SDK's simulated fee allocation is messageType 1 and an allocation retyped to 0 is rejected on-chain (ExternalAllocationInvalid).",
+      "affects": "any contract paying out via emit_transfer, not specific to PhishPatrol logic",
+      "isolated_reproduction": {
+        "contract": "12-line Payer contract (deposit / pay_finalized / pay_accepted), not part of this repo",
+        "contract_address": "0x282d6167D66f8A06f65dcd8BB21F4D33d218F836",
+        "pay_finalized_tx": "0x2552a83c50e13781731f3707a78ba7e62c235bd36b7d2e2ac0f8ac4c6e7722c8",
+        "pay_accepted_tx": "0xc21ab6423ee5f81ac75b81aaedd064f480e2669d045ca9e1c72b17108b175786",
+        "pay_finalized_effect": {
+          "0x491803d45c24bb51175273167de667f93df4c64cca30b244da3ec0c8fed448a5": {
+            "phase": "finalized",
+            "value": "10000000000000000",
+            "include": true,
+            "skipped": true,
+            "descriptor": "0x3be06f31c6f55df98c2b9c0dc277a65926c88f0dc24c72b98ba4e0b1bcad9300",
+            "declaredBudget": 0,
+            "skippedRefunded": true,
+            "skippedRefundAmount": "10000000000000000"
+          }
+        }
+      },
+      "phishpatrol_first_instance": {
+        "contract_address": "0x2705D49f5DfAF983950bE80ca74996F4a62E28bE",
+        "pull_withdraw_tx": "0x6b469cccf7367126326c4366531a1897b83e0e28444a06cd04192bb15b49bc9c",
+        "sweep_vault_tx": "0x3be59a8e91e92775871e002629d4e5a332b21cefb8d47c4faa2014f0abda4038",
+        "observed": "credits and vault debited to 0; contract balance unchanged; transfers skipped"
+      },
+      "consequence": "balance - tracked equals undelivered payouts. It is a surplus, never a deficit, so no claim is ever under-collateralised; but the surplus is not recoverable by any current contract method."
+    },
+    "validator_votes": "Studio Next runs 5 validators and stops at quorum: every transaction shows 3 AGREE and 2 IDLE (the leader and one validator not needed). No transaction recorded a DISAGREE. 'Unanimous' therefore means no dissent among voting validators, not 5 of 5 AGREE.",
+    "case3_fixture": "fixtures/uniswap_claim_fixture.html was served from a local port through an ephemeral cloudflared quick tunnel (https://pants-continental-better-warm.trycloudflare.com), torn down after the run (now HTTP 530). The blacklisted host is that exact tunnel subdomain."
+  },
+  "deployed_code_verification": {
+    "method": "GET https://explorer-studio-next.genlayer.com/api/address/<contract_address> -> contract_code (base64) -> sha256",
+    "deployed_code_sha256": "9b2efcb332d3438aa44b2f02e54699401c206f8ab8fc641e3620ef4c1e9a322e",
+    "in_tree_source_sha256": "9b2efcb332d3438aa44b2f02e54699401c206f8ab8fc641e3620ef4c1e9a322e",
+    "match": true
+  }
+}

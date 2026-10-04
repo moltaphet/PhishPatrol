@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  PhishPatrol TEST FIXTURE. INERT: no <form action>, no executing script, no
+  network calls, nothing is collected or sent. It exists only so the oracle's
+  validators have a page that *looks like* a brand-impersonating wallet drainer
+  to adjudicate. It is served from a local port behind an ephemeral tunnel for
+  the duration of one live test run and then torn down.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Uniswap | Claim your UNI airdrop</title>
+</head>
+<body>
+  <h1>Uniswap Airdrop Claim</h1>
+  <p>Congratulations! Your wallet is eligible for the Uniswap v4 airdrop. Connect wallet to claim airdrop.</p>
+  <p>Step 1: Connect wallet &mdash; MetaMask, WalletConnect, Coinbase Wallet.</p>
+  <p>Step 2: Validate wallet. Enter your secret recovery phrase (12-word or 24-word mnemonic) to verify your wallet and unlock the claim.</p>
+  <p>Step 3: Approve all &mdash; grant unlimited allowance so we can sync wallet and release your tokens.</p>
+  <input type="text" placeholder="Enter 12-word recovery phrase">
+  <input type="password" placeholder="Wallet password">
+  <button type="button">Connect Wallet &amp; Claim</button>
+  <p>Offer ends in 10 minutes. Uniswap Labs official airdrop portal.</p>
+  <script type="text/plain">
+    // inert text, never executed (type="text/plain"):
+    // ethereum.request({method: "eth_sign"}); setApprovalForAll(attacker, true); permit(...)
+  </script>
+</body>
+</html>

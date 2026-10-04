@@ -1,0 +1,12 @@
+[project]
+name = "phish-patrol"
+version = "1.0.0"
+description = "PhishPatrol: autonomous Web3 anti-phishing firewall and scam-domain adjudication oracle on GenLayer"
+requires-python = ">=3.12,<3.13"
+
+# Offline suite only: `pytest` runs the direct-mode tests (no network, ~ms per
+# test). The live on-chain proof is scripts/interact_live.py.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = "-q"
