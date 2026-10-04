@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from conftest import (
-    APPEAL_BOND, ATTO, BENIGN_HTML, BENIGN_SCORES, CONFIRMED, CONTRACT, MIN_BOND, PENDING,
+    APPEAL_BOND, APPEAL_COOLDOWN, APPEAL_FEE, ATTO, EXCLUSIVE, PAYOUT_COOLDOWN, BENIGN_HTML, BENIGN_SCORES, CONFIRMED, CONTRACT, MIN_BOND, PENDING,
     PHISH_HTML, PHISH_SCORES, REJECTED, SEED, V_CONFIRMED, V_FAIL, V_REJECTED,
     V_STALE, V_VOID, VOIDED, scores,
 )
@@ -563,6 +563,7 @@ def test_reward_formula(env, seed, reward):
 def test_reward_shrinks_geometrically_so_a_pool_cannot_be_emptied(env, uni):
     pool = SEED
     for i in range(5):
+        env.advance(PAYOUT_COOLDOWN)  # one bounty per brand per cooldown
         confirm(env, uni, f"https://uniswap-clone-{i}.xyz/", reporter=env.bob)
         pool -= pool // 5
         assert env.c.get_brand(uni)["bounty_pool"] == pool
@@ -951,7 +952,8 @@ def test_queue_state_tracks_progress_when_the_middle_resolves_first(env, uni):
     assert q["pending_count"] == 2
     env.adjudicate(ids[1])
     env.adjudicate(ids[3])
-    assert env.c.get_queue_state() == {"oldest_pending_id": 0, "pending_count": 0, "pending_ids": []}
+    q = env.c.get_queue_state()
+    assert (q["oldest_pending_id"], q["pending_count"], q["pending_ids"]) == (0, 0, [])
 
 
 def test_a_resolved_report_cannot_be_adjudicated_again(env, uni):
@@ -967,12 +969,13 @@ def test_adjudicating_an_unknown_report_reverts(env, uni):
     env.rev("ERR_UNKNOWN_REPORT", env.dave, "void_stale_report", 77)
 
 
-def test_anyone_may_adjudicate_including_the_reporter(env, uni):
+def test_anyone_may_adjudicate_once_the_exclusive_window_has_passed(env, uni):
     env.phish_world()
     r1 = env.report(env.bob, uni, "https://one.xyz/")
-    assert env.adjudicate(r1, who=env.bob) == V_CONFIRMED
+    assert env.adjudicate(r1, who=env.bob) == V_CONFIRMED  # the reporter, at once
     r2 = env.report(env.bob, uni, "https://two.xyz/")
-    assert env.adjudicate(r2, who=env.governor) == V_CONFIRMED
+    env.advance(EXCLUSIVE)
+    assert env.adjudicate(r2, who=env.governor) == V_CONFIRMED  # anyone, later
 
 
 def test_reports_on_different_brands_settle_independently(env, uni_meta):
@@ -1606,24 +1609,37 @@ def test_the_owner_check_applies_before_the_value_check(env, uni):
 # 19. Blacklist appeals and governor review
 # =============================================================================
 HOST = "uniswap-app.xyz"
+REST = APPEAL_BOND - APPEAL_FEE  # what a bond is worth after the non-refundable fee
 
 
 def blacklisted(env, uni):
+    """Confirms HOST, then waits out the 6-hour appeal cooldown."""
     rid = confirm(env, uni, f"https://{HOST}/claim")
     assert env.c.is_phishing(HOST) is True
+    env.advance(APPEAL_COOLDOWN)
     return rid
 
 
-def test_a_successful_appeal_removes_the_entry_and_refunds_the_bond(env, uni):
+def credit_of(env, who):
+    env.vm.sender = who
+    return env.c.claimable_of(env.c.whoami())
+
+
+def test_the_appeal_bond_is_one_gen_with_a_twenty_percent_fee(env):
+    assert APPEAL_BOND == ATTO and APPEAL_FEE == ATTO // 5
+
+
+def test_a_successful_appeal_removes_the_entry_and_returns_the_bond_less_the_fee(env, uni):
     rid = blacklisted(env, uni)
+    vault_before = env.ov()["protocol_vault"]
     env.benign_world()  # the page is clean now
     out = env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
     assert out == "BLACKLIST_REMOVED"
     assert env.c.is_phishing(HOST) is False
     assert env.c.get_report(rid)["overturned"] is True
     assert env.c.get_report(rid)["status"] == CONFIRMED  # history is not rewritten
-    env.vm.sender = env.carol
-    assert env.c.claimable_of(env.c.whoami()) == APPEAL_BOND
+    assert credit_of(env, env.carol) == REST
+    assert env.ov()["protocol_vault"] - vault_before == APPEAL_FEE  # kept even though the appeal won
 
 
 def test_an_overturned_host_can_be_reported_again(env, uni):
@@ -1633,7 +1649,7 @@ def test_an_overturned_host_can_be_reported_again(env, uni):
     assert env.report(env.bob, uni, f"https://{HOST}/again") == 2
 
 
-def test_a_denied_appeal_slashes_the_bond_fifty_fifty(env, uni):
+def test_a_denied_appeal_keeps_the_fee_and_slashes_the_rest_fifty_fifty(env, uni):
     blacklisted(env, uni)
     pool_before = env.c.get_brand(uni)["bounty_pool"]
     vault_before = env.ov()["protocol_vault"]
@@ -1641,10 +1657,9 @@ def test_a_denied_appeal_slashes_the_bond_fifty_fifty(env, uni):
     out = env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
     assert out == "APPEAL_DENIED"
     assert env.c.is_phishing(HOST) is True
-    assert env.c.get_brand(uni)["bounty_pool"] - pool_before == APPEAL_BOND // 2
-    assert env.ov()["protocol_vault"] - vault_before == APPEAL_BOND - APPEAL_BOND // 2
-    env.vm.sender = env.carol
-    assert env.c.claimable_of(env.c.whoami()) == 0
+    assert env.c.get_brand(uni)["bounty_pool"] - pool_before == REST // 2
+    assert env.ov()["protocol_vault"] - vault_before == APPEAL_FEE + REST - REST // 2
+    assert credit_of(env, env.carol) == 0
     assert env.c.get_report(1)["overturned"] is False
 
 
@@ -1655,41 +1670,65 @@ def test_an_unreachable_page_makes_the_appeal_inconclusive(env, uni):
     out = env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
     assert out == "APPEAL_INCONCLUSIVE"
     assert env.c.is_phishing(HOST) is True  # a takedown does not clear the entry
-    fee = APPEAL_BOND * 20 // 100
-    assert env.ov()["protocol_vault"] - vault_before == fee
-    env.vm.sender = env.carol
-    assert env.c.claimable_of(env.c.whoami()) == APPEAL_BOND - fee
+    assert env.ov()["protocol_vault"] - vault_before == APPEAL_FEE
+    assert credit_of(env, env.carol) == REST
 
 
-def test_a_model_failure_changes_nothing_and_refunds_the_appeal_bond(env, uni):
+def test_a_model_failure_decides_nothing_but_still_costs_the_fee(env, uni):
     blacklisted(env, uni)
+    vault_before = env.ov()["protocol_vault"]
     env.reset_mocks()
     env.page(r".*", PHISH_HTML)
     env.llm_raw(json.dumps("junk"))
     assert env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND) == V_FAIL
     assert env.c.is_phishing(HOST) is True
-    env.vm.sender = env.carol
-    assert env.c.claimable_of(env.c.whoami()) == APPEAL_BOND
+    assert env.ov()["protocol_vault"] - vault_before == APPEAL_FEE
+    assert credit_of(env, env.carol) == REST
 
 
-def test_an_appeal_overpayment_is_credited_back(env, uni):
+@pytest.mark.parametrize("mode,credit,vault_gain", [
+    ("benign", REST, APPEAL_FEE),                              # appeal wins: fee still kept
+    ("phish", 0, APPEAL_FEE + REST - REST // 2),               # appeal loses: fee plus half the slash
+    ("void", REST, APPEAL_FEE),                                # inconclusive
+    ("fail", REST, APPEAL_FEE),                                # nothing decided, fee still kept
+])
+def test_the_fee_is_kept_in_every_outcome_and_the_rest_is_exact(env, uni, mode, credit, vault_gain):
+    blacklisted(env, uni)
+    vault_before = env.ov()["protocol_vault"]
+    if mode == "benign":
+        env.benign_world()
+    elif mode == "phish":
+        env.phish_world()
+    elif mode == "void":
+        void_world(env)
+    else:
+        env.reset_mocks()
+        env.page(r".*", PHISH_HTML)
+        env.llm_raw(json.dumps("junk"))
+    env.tx(env.dave, "appeal_blacklist", HOST, value=APPEAL_BOND)
+    assert env.ov()["protocol_vault"] - vault_before == vault_gain
+    assert credit_of(env, env.dave) == credit
+    assert vault_gain >= APPEAL_FEE
+
+
+def test_an_appeal_overpayment_is_credited_back_on_top(env, uni):
     blacklisted(env, uni)
     env.phish_world()
     env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND + 9)
-    env.vm.sender = env.carol
-    assert env.c.claimable_of(env.c.whoami()) == 9
+    assert credit_of(env, env.carol) == 9
 
 
 def test_appeal_preconditions(env, uni):
     blacklisted(env, uni)
     env.phish_world()
     env.rev("ERR_INSUFFICIENT_BOND", env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND - 1)
+    env.rev("ERR_INSUFFICIENT_BOND", env.carol, "appeal_blacklist", HOST, value=ATTO // 2)  # the old 0.5 GEN bond
     env.rev("ERR_NOT_BLACKLISTED", env.carol, "appeal_blacklist", "never-reported.xyz", value=APPEAL_BOND)
     env.rev("ERR_NOT_BLACKLISTED", env.carol, "appeal_blacklist", "login." + HOST, value=APPEAL_BOND)  # covered, not listed
     env.rev("ERR_BAD_SCHEME", env.carol, "appeal_blacklist", "http://" + HOST, value=APPEAL_BOND)
 
 
-def test_a_denied_appeal_against_a_retired_brand_goes_entirely_to_the_vault(env, uni):
+def test_a_denied_appeal_against_a_retired_brand_sends_everything_to_the_vault(env, uni):
     blacklisted(env, uni)
     env.tx(env.alice, "deactivate_brand", uni)
     vault_before = env.ov()["protocol_vault"]
@@ -1699,8 +1738,44 @@ def test_a_denied_appeal_against_a_retired_brand_goes_entirely_to_the_vault(env,
     assert env.c.get_brand(uni)["bounty_pool"] == 0
 
 
-def test_the_governor_can_unblacklist_directly(env, uni):
-    rid = blacklisted(env, uni)
+# ---- the six-hour cooldown
+def test_an_appeal_cannot_be_made_within_six_hours_of_the_listing(env, uni):
+    confirm(env, uni, f"https://{HOST}/claim")
+    env.phish_world()
+    env.rev("ERR_APPEAL_COOLDOWN", env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
+    env.advance(APPEAL_COOLDOWN - 1)
+    env.rev("ERR_APPEAL_COOLDOWN", env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
+    env.advance(1)  # exactly six hours
+    assert env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND) == "APPEAL_DENIED"
+
+
+def test_a_second_appeal_must_also_wait_six_hours(env, uni):
+    blacklisted(env, uni)
+    env.phish_world()
+    env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
+    env.rev("ERR_APPEAL_COOLDOWN", env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
+    env.advance(APPEAL_COOLDOWN - 1)
+    env.rev("ERR_APPEAL_COOLDOWN", env.dave, "appeal_blacklist", HOST, value=APPEAL_BOND)  # by anyone
+    env.advance(1)
+    env.tx(env.dave, "appeal_blacklist", HOST, value=APPEAL_BOND)
+
+
+def test_probing_a_cloaked_page_costs_a_fee_every_time(env, uni):
+    blacklisted(env, uni)
+    vault_before = env.ov()["protocol_vault"]
+    tries = 3
+    for _ in range(tries):
+        env.phish_world()
+        env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
+        env.advance(APPEAL_COOLDOWN)
+    # each probe lost its whole bond; the vault gained the fee plus half the remainder
+    assert env.ov()["protocol_vault"] - vault_before == tries * (APPEAL_FEE + REST - REST // 2)
+    assert credit_of(env, env.carol) == 0
+
+
+# ---- governor review
+def test_the_governor_can_unblacklist_directly_and_at_once(env, uni):
+    rid = confirm(env, uni, f"https://{HOST}/claim")  # no cooldown for the governor
     credit = env.c.claimable_of(env.c.get_report(rid)["reporter"])
     env.tx(env.governor, "unblacklist_host", "https://www." + HOST + "/x")
     assert env.c.is_phishing(HOST) is False
@@ -1816,6 +1891,176 @@ def test_a_failed_round_leaves_the_pending_count_alone(env, uni):
     rid = env.report(env.bob, uni, "https://scam.xyz/")
     assert env.adjudicate(rid) == V_FAIL
     assert env.ov()["pending_count"] == 1
+
+
+# =============================================================================
+# 22. Reporter-exclusive adjudication window (anti front-running)
+# =============================================================================
+def test_a_non_reporter_cannot_adjudicate_inside_the_window(env, uni):
+    env.phish_world()
+    rid = env.report(env.bob, uni, "https://scam.xyz/")
+    for who in (env.dave, env.alice, env.carol, env.governor):
+        env.rev("ERR_REPORTER_EXCLUSIVE_WINDOW", who, "adjudicate_report", rid)
+    env.advance(EXCLUSIVE - 1)
+    for who in (env.dave, env.governor):
+        env.rev("ERR_REPORTER_EXCLUSIVE_WINDOW", who, "adjudicate_report", rid)
+    assert env.c.get_report(rid)["status"] == PENDING
+
+
+def test_anyone_can_adjudicate_at_exactly_fifteen_minutes(env, uni):
+    env.phish_world()
+    rid = env.report(env.bob, uni, "https://scam.xyz/")
+    env.advance(EXCLUSIVE)
+    assert env.adjudicate(rid, who=env.dave) == V_CONFIRMED
+
+
+def test_the_reporter_can_adjudicate_immediately_and_at_the_edge(env, uni):
+    env.phish_world()
+    r1 = env.report(env.bob, uni, "https://one.xyz/")
+    assert env.adjudicate(r1, who=env.bob) == V_CONFIRMED  # at once
+    r2 = env.report(env.bob, uni, "https://two.xyz/")
+    env.advance(EXCLUSIVE - 1)
+    assert env.adjudicate(r2, who=env.bob) == V_CONFIRMED  # one second before the window closes
+
+
+def test_the_accused_cannot_trigger_a_round_to_catch_their_page_clean(env, uni):
+    # The phisher scrubs the page, then tries to adjudicate before the reporter
+    # does, so a clean read slashes the reporter. The window refuses them.
+    env.benign_world()  # the page is clean at this moment
+    rid = env.report(env.bob, uni, "https://scam.xyz/")
+    env.rev("ERR_REPORTER_EXCLUSIVE_WINDOW", env.carol, "adjudicate_report", rid)
+    assert env.c.get_report(rid)["status"] == PENDING
+    assert env.ov()["total_locked_bonds"] == MIN_BOND  # the reporter's bond is untouched
+    assert env.ov()["protocol_vault"] == 0
+
+
+def test_the_window_is_per_report(env, uni):
+    r1 = env.report(env.bob, uni, "https://one.xyz/")
+    env.advance(EXCLUSIVE)
+    r2 = env.report(env.bob, uni, "https://two.xyz/")  # filed just now
+    env.benign_world()
+    env.rev("ERR_REPORTER_EXCLUSIVE_WINDOW", env.dave, "adjudicate_report", r2)
+    assert env.adjudicate(r1, who=env.dave) == V_REJECTED  # r1's window has closed
+
+
+def test_a_model_failure_inside_the_window_does_not_end_it(env, uni):
+    env.reset_mocks()
+    env.page(r".*", PHISH_HTML)
+    env.llm_raw(json.dumps("junk"))
+    rid = env.report(env.bob, uni, "https://scam.xyz/")
+    assert env.adjudicate(rid, who=env.bob) == V_FAIL
+    env.rev("ERR_REPORTER_EXCLUSIVE_WINDOW", env.dave, "adjudicate_report", rid)
+
+
+def test_stale_voiding_is_not_affected_by_the_window(env, uni):
+    rid = env.report(env.bob, uni, "https://scam.xyz/")
+    env.advance(2 * 3600)
+    env.tx(env.bob, "void_stale_report", rid)
+    assert env.c.get_report(rid)["status"] == VOIDED
+
+
+# =============================================================================
+# 23. Decoy-bounty throttling (one payout per brand per six hours)
+# =============================================================================
+def test_the_first_confirmation_pays_and_records_the_reward(env, uni):
+    rid = confirm(env, uni, "https://decoy-one.xyz/")
+    assert env.c.get_report(rid)["reward"] == SEED // 5
+    assert env.c.get_brand(uni)["last_payout_at"] == env.now()
+
+
+def test_a_second_confirmation_inside_the_cooldown_blacklists_but_pays_no_reward(env, uni):
+    confirm(env, uni, "https://decoy-one.xyz/")
+    pool_after_first = env.c.get_brand(uni)["bounty_pool"]
+    env.advance(PAYOUT_COOLDOWN - 1)
+    rid = confirm(env, uni, "https://decoy-two.xyz/", reporter=env.carol)
+    r = env.c.get_report(rid)
+    assert r["status"] == CONFIRMED and r["verdict"] == V_CONFIRMED
+    assert r["reward"] == 0
+    assert env.c.is_phishing("decoy-two.xyz") is True  # still blacklisted
+    assert env.c.get_brand(uni)["bounty_pool"] == pool_after_first  # the pool is untouched
+    assert credit_of(env, env.carol) == MIN_BOND  # the bond comes back in full, nothing more
+
+
+def test_the_cooldown_ends_at_exactly_six_hours(env, uni):
+    confirm(env, uni, "https://decoy-one.xyz/")
+    env.advance(PAYOUT_COOLDOWN)
+    rid = confirm(env, uni, "https://decoy-two.xyz/")
+    assert env.c.get_report(rid)["reward"] > 0
+
+
+def test_twelve_decoy_subdomains_cannot_drain_the_pool(env):
+    bid = env.register(env.alice, "Uniswap", ["uniswap.org"], value=10 * ATTO)
+    for i in range(12):
+        confirm(env, bid, f"https://decoy-{i}.xyz/", reporter=env.bob)
+    paid = [env.c.get_report(i)["reward"] for i in range(1, 13)]
+    assert paid[0] == ATTO  # 20% of 10 GEN, capped at 1 GEN
+    assert paid[1:] == [0] * 11
+    assert env.c.get_brand(bid)["bounty_pool"] == 9 * ATTO  # one payout, not twelve
+    assert all(env.c.is_phishing(f"decoy-{i}.xyz") for i in range(12))  # every host is still listed
+
+
+def test_the_cooldown_is_per_brand(env, uni_meta):
+    uni, mm = uni_meta
+    confirm(env, uni, "https://decoy-one.xyz/")
+    rid = confirm(env, mm, "https://decoy-two.xyz/")
+    assert env.c.get_report(rid)["reward"] == SEED // 5  # MetaMask's own clock has not started
+
+
+def test_zero_reward_confirmations_do_not_extend_the_cooldown(env, uni):
+    confirm(env, uni, "https://one.xyz/")  # paid at T0
+    env.advance(3 * 3600)
+    assert env.c.get_report(confirm(env, uni, "https://two.xyz/"))["reward"] == 0  # T0 + 3h, throttled
+    env.advance(3 * 3600)
+    assert env.c.get_report(confirm(env, uni, "https://three.xyz/"))["reward"] > 0  # T0 + 6h, paid
+
+
+def test_rejections_and_voids_do_not_touch_the_payout_clock(env, uni):
+    env.benign_world()
+    env.adjudicate(env.report(env.bob, uni, "https://one.xyz/"))
+    void_world(env)
+    env.adjudicate(env.report(env.bob, uni, "https://two.xyz/"))
+    assert env.c.get_brand(uni)["last_payout_at"] == 0
+    rid = confirm(env, uni, "https://three.xyz/")
+    # one slashed bond (half to the pool) grew it before the confirmation; the reward is 20% of that
+    assert env.c.get_report(rid)["reward"] == (SEED + MIN_BOND // 2) // 5
+
+
+def test_a_throttled_confirmation_keeps_the_ledger_balanced(env, uni):
+    confirm(env, uni, "https://one.xyz/")
+    confirm(env, uni, "https://two.xyz/")
+    o = env.ov()
+    assert o["total_locked_bonds"] == 0
+    assert o["total_claimable"] == 2 * MIN_BOND + SEED // 5
+    env.assert_solvent()
+
+
+# =============================================================================
+# 24. Bounded queue compaction
+# =============================================================================
+def test_compaction_skips_at_most_25_entries_per_transaction(env, uni):
+    env.benign_world()
+    ids = [env.report(env.bob, uni, f"https://h{i}.xyz/") for i in range(41)]
+    for rid in ids[1:40]:  # resolve 39 reports behind the still-pending first one
+        env.adjudicate(rid)
+    assert env.c.get_queue_state()["scan_start"] == 0  # blocked by the first report
+    env.adjudicate(ids[0])  # now a prefix of 40 resolved entries could be skipped
+    assert env.c.get_queue_state()["scan_start"] == 25  # but only 25 are, in this transaction
+    env.adjudicate(ids[40])
+    assert env.c.get_queue_state()["scan_start"] == 41  # the next transaction finishes the job
+    assert env.c.get_queue_state()["pending_count"] == 0
+
+
+def test_a_bounded_compaction_never_changes_what_is_reported_pending(env, uni):
+    env.benign_world()
+    ids = [env.report(env.bob, uni, f"https://h{i}.xyz/") for i in range(40)]
+    for rid in ids[1:]:
+        env.adjudicate(rid)
+    env.adjudicate(ids[0])
+    q = env.c.get_queue_state()
+    assert q["pending_ids"] == [] and q["pending_count"] == 0 and q["oldest_pending_id"] == 0
+    # a fresh report after a partial compaction is still tracked correctly
+    new = env.report(env.bob, uni, "https://fresh.xyz/")
+    assert env.c.get_queue_state()["pending_ids"] == [new]
 
 
 # =============================================================================

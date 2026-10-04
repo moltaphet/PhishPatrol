@@ -62,6 +62,8 @@ ERR_NOT_PENDING = "ERR_NOT_PENDING"
 ERR_BRAND_UNVERIFIED = "ERR_BRAND_UNVERIFIED"
 ERR_NOT_BRAND_OWNER = "ERR_NOT_BRAND_OWNER"
 ERR_NOT_BLACKLISTED = "ERR_NOT_BLACKLISTED"
+ERR_REPORTER_EXCLUSIVE_WINDOW = "ERR_REPORTER_EXCLUSIVE_WINDOW"
+ERR_APPEAL_COOLDOWN = "ERR_APPEAL_COOLDOWN"
 ERR_NOT_STALE = "ERR_NOT_STALE"
 ERR_NO_BALANCE = "ERR_NO_CLAIMABLE_BALANCE"
 ERR_NOTHING_TO_SWEEP = "ERR_NOTHING_TO_SWEEP"
@@ -100,7 +102,12 @@ BPS = 10000
 # --- Liveness ----------------------------------------------------------------
 STALE_AFTER = 2 * 3600  # a pending report becomes voidable by its reporter (or the governor) ...
 PUBLIC_STALE_AFTER = 24 * 3600  # ... and by anyone after this long, so a stranger cannot void it early
-APPEAL_BOND = ATTO // 2  # 0.5 GEN to challenge a blacklist entry
+APPEAL_BOND = ATTO  # 1.0 GEN to challenge a blacklist entry ...
+APPEAL_FEE_BPS = 2000  # ... of which 20% (0.2 GEN) is a non-refundable fee, whatever the outcome
+APPEAL_COOLDOWN = 6 * 3600  # an appeal must wait this long after the listing, or after the previous appeal
+EXCLUSIVE_WINDOW = 900  # only the reporter may adjudicate a report for its first 15 minutes
+PAYOUT_COOLDOWN = 6 * 3600  # one bounty per brand per 6 hours; a confirmation inside it pays no reward
+COMPACT_STEPS = 25  # max queue entries skipped per transaction
 SCORE_TOLERANCE = 25  # max per-dimension gap between the leader's scores and a validator's own
 
 # --- Input / content limits --------------------------------------------------
@@ -557,6 +564,7 @@ class PhishingReport:
     exec_failures: u256
     resolved_at: u256
     overturned: bool
+    reward: u256
 
 
 class PhishPatrol(gl.contract.Contract):
@@ -572,6 +580,9 @@ class PhishPatrol(gl.contract.Contract):
 
     blacklisted_hosts: TreeMap[str, bool]
     host_to_report_id: TreeMap[str, u256]
+    blacklisted_at: TreeMap[str, u256]
+    last_appeal_at: TreeMap[str, u256]
+    last_payout_at: TreeMap[u256, u256]
     host_pending: TreeMap[str, bool]
     domain_brand: TreeMap[str, u256]
     brand_name_key: TreeMap[str, u256]
@@ -641,8 +652,12 @@ class PhishPatrol(gl.contract.Contract):
         listing pending reports stays proportional to what is actually pending."""
         n = len(self.pending_reports_queue)
         head = int(self.queue_head)
-        while head < n and int(self.reports[int(self.pending_reports_queue[head])].status) != STATUS_PENDING:
+        steps = 0
+        # Bounded per transaction so a long resolved prefix cannot make one call
+        # arbitrarily expensive; the next call carries on from where this stopped.
+        while steps < COMPACT_STEPS and head < n and int(self.reports[int(self.pending_reports_queue[head])].status) != STATUS_PENDING:
             head += 1
+            steps += 1
         self.queue_head = head
 
     def _release_report(self, r: PhishingReport) -> None:
@@ -687,6 +702,7 @@ class PhishPatrol(gl.contract.Contract):
             "bounty_pool": int(b.bounty_pool),
             "is_active": b.is_active,
             "is_verified": b.is_verified,
+            "last_payout_at": int(self.last_payout_at[brand_id]) if brand_id in self.last_payout_at else 0,
             "pending_reports": int(self.brand_pending[brand_id]) if brand_id in self.brand_pending else 0,
             "created_at": int(b.created_at),
         }
@@ -711,6 +727,7 @@ class PhishPatrol(gl.contract.Contract):
             "exec_failures": int(r.exec_failures),
             "resolved_at": int(r.resolved_at),
             "overturned": r.overturned,
+            "reward": int(r.reward),
         }
 
     @gl.public.view
@@ -745,6 +762,7 @@ class PhishPatrol(gl.contract.Contract):
             if int(self.reports[rid].status) == STATUS_PENDING:
                 pending.append(rid)
         return {
+            "scan_start": int(self.queue_head),
             "oldest_pending_id": pending[0] if pending else 0,
             "pending_count": len(pending),
             "pending_ids": pending,
@@ -927,6 +945,7 @@ class PhishPatrol(gl.contract.Contract):
             exec_failures=0,
             resolved_at=0,
             overturned=False,
+            reward=0,
         )
         self.pending_reports_queue.append(report_id)
         self.pending_total += 1
@@ -946,6 +965,11 @@ class PhishPatrol(gl.contract.Contract):
         r = self._report(report_id)
         if int(r.status) != STATUS_PENDING:
             raise gl.vm.UserError(f"{ERR_NOT_PENDING} report {report_id}")
+        # Reporter-exclusive window: for its first 15 minutes only the reporter may
+        # trigger the round, so the accused cannot time an adjudication to the
+        # moment their page is clean and have the reporter's bond slashed.
+        if self._now() < int(r.timestamp) + EXCLUSIVE_WINDOW and gl.message.sender_address != r.reporter:
+            raise gl.vm.UserError(f"{ERR_REPORTER_EXCLUSIVE_WINDOW} only the reporter may adjudicate for the first {EXCLUSIVE_WINDOW}s")
 
         b = self._brand(int(r.brand_id))
         out = self._evaluate(r.suspect_url, r.canonical_host, b.brand_name, json.loads(b.canonical_domains))
@@ -970,10 +994,22 @@ class PhishPatrol(gl.contract.Contract):
             reward = pool * REWARD_BPS // BPS
             if reward > REWARD_CAP:
                 reward = REWARD_CAP
+            # Decoy-farming brake: one bounty per brand per cooldown. A confirmation
+            # inside it still blacklists the host and returns the bond in full, but
+            # pays no reward, so cheap throwaway subdomains cannot drain a pool.
+            brand_key = int(r.brand_id)
+            last = int(self.last_payout_at[brand_key]) if brand_key in self.last_payout_at else 0
+            now = self._now()
+            if last != 0 and now < last + PAYOUT_COOLDOWN:
+                reward = 0
+            if reward > 0:
+                self.last_payout_at[brand_key] = now
+            r.reward = reward
             b.bounty_pool = pool - reward
             self.total_bounties -= reward
             self.blacklisted_hosts[r.canonical_host] = True
             self.host_to_report_id[r.canonical_host] = report_id
+            self.blacklisted_at[r.canonical_host] = now
             self._credit(r.reporter, bond + reward)
         elif verdict == VERDICT_REJECTED:
             r.status = STATUS_REJECTED
@@ -1135,48 +1171,57 @@ class PhishPatrol(gl.contract.Contract):
 
     @gl.public.write.payable
     def appeal_blacklist(self, host_or_url: str) -> str:
-        """Anyone can challenge a blacklisted host by posting a 0.5 GEN bond; the
-        validators re-read the page now.
-          * Page no longer scores as phishing -> entry removed, bond refunded.
-          * Still phishing                    -> appeal denied, bond slashed 50/50
-                                                 (brand pool / vault).
-          * Unreachable                       -> inconclusive, 20% fee kept.
-          * Model failure                     -> nothing changes, bond refunded.
-        Only an exact blacklisted host can be appealed (appeal the parent for a
-        covered subdomain). The contract cannot prove who owns a domain, so the
-        bond, not identity, is what gates an appeal."""
+        """Anyone can challenge a blacklisted host by posting a 1.0 GEN bond; the
+        validators re-read the page now. 20% of the bond (0.2 GEN) is a
+        non-refundable protocol fee whatever the outcome, since the validators
+        ran either way; the remaining 0.8 GEN is settled by the verdict:
+          * Page no longer scores as phishing -> entry removed, 0.8 GEN returned.
+          * Still phishing                    -> appeal denied, 0.8 GEN slashed
+                                                 50/50 (brand pool / vault).
+          * Unreachable                       -> inconclusive, 0.8 GEN returned.
+          * Model failure                     -> nothing decided, 0.8 GEN returned.
+        An appeal must wait 6 hours after the listing, and 6 hours after the
+        previous appeal on the same host, so a kit cannot keep testing a cloaked
+        page. Only an exact blacklisted host can be appealed (appeal the parent
+        for a covered subdomain). The contract cannot prove who owns a domain, so
+        the bond, not identity, is what gates an appeal."""
         host = _canonicalize(host_or_url)[0]
         if host not in self.blacklisted_hosts or not self.blacklisted_hosts[host]:
             raise gl.vm.UserError(f"{ERR_NOT_BLACKLISTED} {host} is not itself blacklisted")
         paid = int(gl.message.value)
         if paid < APPEAL_BOND:
             raise gl.vm.UserError(f"{ERR_INSUFFICIENT_BOND} appeal bond is {APPEAL_BOND}")
+        since = int(self.blacklisted_at[host]) if host in self.blacklisted_at else 0
+        if host in self.last_appeal_at and int(self.last_appeal_at[host]) > since:
+            since = int(self.last_appeal_at[host])
+        if self._now() < since + APPEAL_COOLDOWN:
+            raise gl.vm.UserError(f"{ERR_APPEAL_COOLDOWN} an appeal must wait {APPEAL_COOLDOWN}s after the listing or the last appeal")
         r = self.reports[int(self.host_to_report_id[host])]
         b = self._brand(int(r.brand_id))
         sender = gl.message.sender_address
         out = self._evaluate(r.suspect_url, host, b.brand_name, json.loads(b.canonical_domains))
         verdict = out["verdict"]
+        self.last_appeal_at[host] = self._now()
+
+        fee = APPEAL_BOND * APPEAL_FEE_BPS // BPS  # kept in every outcome
+        rest = APPEAL_BOND - fee
+        self.protocol_vault += fee
         self._credit(sender, paid - APPEAL_BOND)  # excess over the bond is always returned
 
         if verdict == VERDICT_REJECTED:
             self._overturn(host)
-            self._credit(sender, APPEAL_BOND)
+            self._credit(sender, rest)
             return APPEAL_UPHELD
         if verdict == VERDICT_CONFIRMED:
-            to_brand = APPEAL_BOND * SLASH_BRAND_BPS // BPS if b.is_active else 0
+            to_brand = rest * SLASH_BRAND_BPS // BPS if b.is_active else 0
             if to_brand > 0:
                 b.bounty_pool += to_brand
                 self.target_brands[int(r.brand_id)] = b
                 self.total_bounties += to_brand
-            self.protocol_vault += APPEAL_BOND - to_brand
+            self.protocol_vault += rest - to_brand
             return APPEAL_DENIED
-        if verdict == VERDICT_VOID:
-            fee = APPEAL_BOND * VOID_FEE_BPS // BPS
-            self.protocol_vault += fee
-            self._credit(sender, APPEAL_BOND - fee)
-            return APPEAL_INCONCLUSIVE
-        self._credit(sender, APPEAL_BOND)  # EXEC_FAILURE: undo, nothing was decided
-        return VERDICT_EXEC_FAILURE
+        self._credit(sender, rest)  # unreachable or model failure: nothing was decided
+        return APPEAL_INCONCLUSIVE if verdict == VERDICT_VOID else VERDICT_EXEC_FAILURE
 
     @gl.public.write
     def transfer_governor(self, new_governor_hex: str) -> None:

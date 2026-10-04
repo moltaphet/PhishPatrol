@@ -37,6 +37,9 @@ from common import (
 
 SEED = ATTO // 2
 MIN_BOND = ATTO // 10
+# Case 7's amounts match the DEPLOYED revision (0.5 GEN bond, 20% fee only when inconclusive).
+# The repository contract now charges a 1.0 GEN bond with a 0.2 GEN fee in every outcome and
+# needs a 6-hour wait after the listing, so Case 7 must be revised before a redeploy.
 APPEAL_BOND = ATTO // 2
 
 BENIGN_OFFICIAL_URL = "https://blog.uniswap.org/"  # Uniswap-owned, answers 200, not a registered official host
@@ -97,7 +100,7 @@ class Live:
 
     def adjudicate(self, report_id: int, txs: list, retries: int = 3) -> dict:
         for attempt in range(1, retries + 1):
-            adj = self.gov.write("adjudicate_report", report_id, label=f"adjudicate #{report_id} (attempt {attempt})")
+            adj = self.rep.write("adjudicate_report", report_id, label=f"adjudicate #{report_id} (attempt {attempt})")
             txs.append(tx_entry(f"adjudicate_report attempt {attempt}", adj))
             rec = self.gov.read("get_report", report_id)
             if int(rec["status"]) != 0:
@@ -106,7 +109,7 @@ class Live:
         raise ChainError(f"report #{report_id} was not settled after {retries} adjudication attempts")
 
     def file_and_adjudicate(self, brand_id: int, url: str, txs: list, retries: int = 3) -> tuple[int, dict]:
-        """Reporter files, a third party (the governor key) adjudicates. A round
+        """Reporter files and adjudicates (only the reporter may during the first 15 minutes). A round
         the validators could not score returns EXEC_FAILURE and leaves the report
         pending; that is retried, as the contract intends."""
         bond = int(self.gov.read("required_bond", brand_id))
@@ -114,7 +117,7 @@ class Live:
         txs.append(tx_entry("report_phishing", out))
         report_id = int(self.overview()["report_count"])
         for attempt in range(1, retries + 1):
-            adj = self.gov.write("adjudicate_report", report_id, label=f"adjudicate #{report_id} (attempt {attempt})")
+            adj = self.rep.write("adjudicate_report", report_id, label=f"adjudicate #{report_id} (attempt {attempt})")
             txs.append(tx_entry(f"adjudicate_report attempt {attempt}", adj))
             rec = self.gov.read("get_report", report_id)
             if int(rec["status"]) != 0:

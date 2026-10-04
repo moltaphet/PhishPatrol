@@ -31,7 +31,11 @@ CONTRACT = "contracts/phish_patrol.py"
 ATTO = 10**18
 SEED = ATTO // 2  # minimum brand seed, 0.5 GEN
 MIN_BOND = ATTO // 10  # 0.1 GEN
-APPEAL_BOND = ATTO // 2  # 0.5 GEN
+APPEAL_BOND = ATTO  # 1.0 GEN
+APPEAL_FEE = ATTO // 5  # 20% of the appeal bond, never refunded
+EXCLUSIVE = 900  # reporter-only adjudication window, seconds
+PAYOUT_COOLDOWN = 6 * 3600
+APPEAL_COOLDOWN = 6 * 3600
 
 # Terminal report statuses.
 PENDING, CONFIRMED, REJECTED, VOIDED = 0, 1, 2, 3
@@ -161,8 +165,23 @@ class Env:
             value = self.bond(brand_id)
         return self.tx(who, "report_phishing", brand_id, url, value=value)
 
+    def account_of(self, address_hex):
+        """The test account behind an on-chain address."""
+        if not hasattr(self, "_by_hex"):
+            self._by_hex = {}
+            prev = self.vm.sender
+            for acct in (self.governor, self.alice, self.bob, self.carol, self.dave):
+                self.vm.sender = acct
+                self._by_hex[self.c.whoami().lower()] = acct
+            self.vm.sender = prev
+        return self._by_hex[address_hex.lower()]
+
     def adjudicate(self, report_id, who=None):
-        return self.tx(who or self.dave, "adjudicate_report", report_id)
+        """Adjudicates as the report's own reporter unless told otherwise: the
+        reporter is the only account allowed to during the first 15 minutes."""
+        if who is None:
+            who = self.account_of(self.c.get_report(report_id)["reporter"])
+        return self.tx(who, "adjudicate_report", report_id)
 
     def withdraw(self, who):
         amount = self.tx(who, "pull_withdraw", solvent=False)

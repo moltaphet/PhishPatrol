@@ -128,7 +128,7 @@ export function VerdictCard({ verdict }: { verdict: Exclude<Verdict, { kind: "in
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
               This domain is neither an official brand domain nor a confirmed phishing site. That does not mean it is safe. If you think it
               impersonates a protected brand, report it: when validators confirm it you get your bond back plus 20% of the brand&apos;s bounty
-              pool, up to 1 GEN.
+              pool, up to 1 GEN (one bounty per brand every 6 hours).
               {demo && " (Demo data is showing; the network is unreachable.)"}
             </p>
             <Button variant="primary" className="mt-5" onClick={() => openReport({ url: verdict.host })}>

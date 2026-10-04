@@ -144,7 +144,7 @@ function SheetBody({ onClose }: { onClose: () => void }) {
           </div>
           <p className="mt-1 text-xs text-zinc-500">max(0.1 GEN, 2% of the {brand?.name ?? "brand"} pool)</p>
           <ul className="mt-4 space-y-2 border-t border-white/[0.07] pt-4 text-sm">
-            <li className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-sys-green" /><span className="text-zinc-300">Confirmed: bond refunded plus 20% of the pool, up to 1 GEN.</span></li>
+            <li className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-sys-green" /><span className="text-zinc-300">Confirmed: bond refunded plus 20% of the pool, up to 1 GEN. A brand pays one bounty per 6 hours; later confirmations return the bond only.</span></li>
             <li className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-sys-red" /><span className="text-zinc-300">False positive: half the bond goes to the brand, half to the protocol.</span></li>
             <li className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-sys-amber" /><span className="text-zinc-300">Unreachable page: a 20% fee is kept, the rest is refunded.</span></li>
           </ul>

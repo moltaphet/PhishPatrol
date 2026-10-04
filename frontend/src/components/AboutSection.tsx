@@ -46,7 +46,7 @@ export function AboutSection() {
           <h3 className="mt-6 text-xl font-semibold tracking-tight text-zinc-50">Game-Theoretic Economic Bonds</h3>
           <p className="mt-3 text-sm leading-relaxed text-zinc-400">
             Every report posts a bond of <span className="font-mono text-zinc-200">max(0.1 GEN, 2%)</span> of the brand&apos;s pool. A confirmed
-            report returns the bond plus 20% of the pool, capped at 1 GEN. A false positive is slashed 50/50 between the targeted brand and
+            report returns the bond plus 20% of the pool, capped at 1 GEN, with one bounty per brand per 6 hours. A false positive is slashed 50/50 between the targeted brand and
             the protocol vault.
           </p>
         </GlassCard>

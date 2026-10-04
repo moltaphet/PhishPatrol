@@ -10,9 +10,9 @@ The repository is the contract, its test suite, the deployment and live-verifica
 |---|---|
 | Contract | [`contracts/phish_patrol.py`](contracts/phish_patrol.py) |
 | Network | GenLayer Studio Next, chain `61997` |
-| Live instance | `0x2f74318e2E0FA48B1665007Cc3210d6b3a141f9e` ([explorer](https://explorer-studio-next.genlayer.com/address/0x2f74318e2E0FA48B1665007Cc3210d6b3a141f9e)) |
+| Live instance | `0x2f74318e2E0FA48B1665007Cc3210d6b3a141f9e` ([explorer](https://explorer-studio-next.genlayer.com/address/0x2f74318e2E0FA48B1665007Cc3210d6b3a141f9e)). **This predates the reporter window, payout throttle and appeal-fee changes of §8.10; the repository contract is newer and has not been redeployed.** |
 | Deployment record | [`deployments/studio-next.json`](deployments/studio-next.json) |
-| Tests | 321 direct-mode tests, 6,427 executed assertions, `genvm-lint` clean |
+| Tests | 346 direct-mode tests, 8,060 executed assertions, `genvm-lint` clean |
 | Interface | [`frontend/`](frontend/): `pnpm install && pnpm dev` |
 
 > **Read §8 before integrating.** Studio Next currently *skips* `emit_transfer` payouts, so `pull_withdraw` debits a credit without delivering the GEN on that network. It is documented, reproduced in isolation, and never creates a deficit.
@@ -42,10 +42,10 @@ The repository is the contract, its test suite, the deployment and live-verifica
 | Actor | Does | Gets / risks |
 |---|---|---|
 | Brand owner | `register_brand` with official domains and a seed of at least 0.5 GEN; `fund_bounty` to top up (owner and governor only) | Pool compensates them for slashed false reports. The brand must be verified before it can be reported against |
-| Reporter | `report_phishing(brand_id, url)` with a bond of `max(0.1 GEN, 2% of pool)` | Confirmed: bond back plus 20% of the pool (cap 1 GEN). Rejected: half the bond slashed to the brand, half to the vault. Void: 20% fee |
-| Keeper | Anyone calls `adjudicate_report` on any pending report | Nothing; it is a public good, so settlement cannot be captured |
+| Reporter | `report_phishing(brand_id, url)` with a bond of `max(0.1 GEN, 2% of pool)` | Confirmed: bond back plus 20% of the pool (cap 1 GEN), at most one bounty per brand per 6 hours. Rejected: half the bond slashed to the brand, half to the vault. Void: 20% fee |
+| Keeper | Anyone calls `adjudicate_report` on any pending report, once the reporter's 15-minute exclusive window has passed | Nothing; it is a public good, so settlement cannot be captured |
 | Governor | `verify_brand` / `unverify_brand`, `unblacklist_host`, `sweep_vault`, `transfer_governor`, may `deactivate_brand` and fund any pool | Cannot touch bonds or credits |
-| Appellant | `appeal_blacklist(host)` with a 0.5 GEN bond | Wins: entry removed, bond back. Loses: bond slashed 50/50 |
+| Appellant | `appeal_blacklist(host)` with a 1.0 GEN bond, at least 6 hours after the listing | Wins: entry removed, 0.8 GEN back. Loses: the other 0.8 GEN slashed 50/50. Every appeal costs a non-refundable 0.2 GEN |
 | Integrator | Reads `is_phishing` | Free view |
 
 **Lifecycle of a report**
@@ -53,7 +53,8 @@ The repository is the contract, its test suite, the deployment and live-verifica
 ```
 report_phishing ──► PENDING (bond locked; brand must be verified)
                        │
-                       ▼ adjudicate_report (any pending report, any order)
+                       ▼ adjudicate_report (any pending report, any order;
+                       ▼  reporter only for the first 15 minutes)
         every validator fetches the page and runs the same pipeline
                        │
       ┌────────────────┼─────────────────────┬──────────────────┐
@@ -73,9 +74,9 @@ report_phishing ──► PENDING (bond locked; brand must be verified)
 | `verify_brand(brand_id)` / `unverify_brand(brand_id)` | write | governor only |
 | `fund_bounty(brand_id)` | payable | brand owner or governor only (`ERR_NOT_BRAND_OWNER`); `ERR_CHALLENGE_IN_PROGRESS` while any report against the brand is pending |
 | `report_phishing(brand_id, suspect_url)` | payable | verified brands only (`ERR_BRAND_UNVERIFIED`); bond `max(0.1, 2%·pool)`; excess credited back; the target brand's own domains are exempt (`ERR_OFFICIAL_DOMAIN`) |
-| `adjudicate_report(report_id)` | write | any pending report, in any order; returns the verdict |
+| `adjudicate_report(report_id)` | write | any pending report, in any order; reporter only for its first 15 minutes (`ERR_REPORTER_EXCLUSIVE_WINDOW`); returns the verdict |
 | `void_stale_report(report_id)` | write | after 2 h by the reporter or governor, after 24 h by anyone; full refund |
-| `appeal_blacklist(host)` | payable | 0.5 GEN bond; re-adjudicates the host now (§8.9) |
+| `appeal_blacklist(host)` | payable | 1.0 GEN bond, 0.2 GEN of it a non-refundable fee; 6-hour cooldown (`ERR_APPEAL_COOLDOWN`); re-adjudicates the host now (§8.9) |
 | `unblacklist_host(host)` | write | governor review (§8.9) |
 | `pull_withdraw()` / `sweep_vault()` | write | pull pattern only |
 | `deactivate_brand(brand_id)` / `transfer_governor(hex)` | write | |
@@ -99,7 +100,10 @@ report_phishing ──► PENDING (bond locked; brand must be verified)
 | Duplicate-report farming | One pending report per host; reports against a blacklisted host *or any subdomain of it* revert | |
 | False-positive harassment | 50% of the bond slashed to the target brand | |
 | Brand squatting and weaponising the oracle: registering a legitimate dApp's name and reporting its rivals | Brands start unverified and cannot be reported against until the governor calls `verify_brand`; names and domains unique; the governor can `deactivate_brand` a squatter | The governor must check ownership off-chain (§8.5, §8.9) |
-| Erroneous blacklist entry | `appeal_blacklist` (0.5 GEN, re-adjudicated by validators) and governor `unblacklist_host` | A cloaking page can win an appeal (§8.9) |
+| Erroneous blacklist entry | `appeal_blacklist` (1.0 GEN, re-adjudicated by validators) and governor `unblacklist_host` | A cloaking page can win an appeal (§8.9) |
+| Front-running adjudication: the accused scrubs the page and triggers a round to slash the reporter | Only the reporter may adjudicate for the first 15 minutes | The reporter must act inside the window; a page cleaned afterwards is judged clean (§8.10) |
+| Decoy bounty farming: many cheap lookalike subdomains to drain a pool | One bounty per brand per 6 hours; later confirmations still blacklist and return the bond but pay nothing | One decoy per 6 hours still pays, and honest reporters inside a cooldown earn no reward (§8.10) |
+| Free probing of a cloaked page through repeated appeals | 1.0 GEN bond with a non-refundable 0.2 GEN fee per attempt, and a 6-hour cooldown after the listing and after each appeal | A kit willing to pay 0.2 GEN per probe every 6 hours (§8.10) |
 | Insolvency | Conservation proof (§6), `check_invariant`, a randomised ledger test | Platform payout skip leaves *surplus* (§8.7) |
 | Governor abuse | Governor can only sweep the *vault*; it cannot touch pools, bonds or credits | Key compromise can sweep fees and rotate the governor |
 
@@ -202,10 +206,10 @@ where `total_bounties = Σ brand.bounty_pool`, `total_locked_bonds = Σ bond of 
 | rejected | | +⌊B/2⌋ | −B | | +(B−⌊B/2⌋) | 0 |
 | void (fee f = ⌊B/5⌋) | | | −B | +(B−f) | +f | 0 |
 | `void_stale_report` | | | −B | +B | | 0 |
-| `appeal_blacklist` (v ≥ A), page cleared | +v | | | +v | | 0 |
-| `appeal_blacklist`, denied | +v | +⌊A/2⌋ | | +(v−A) | +(A−⌊A/2⌋) | 0 |
-| `appeal_blacklist`, inconclusive (f = ⌊A/5⌋) | +v | | | +(v−f) | +f | 0 |
-| `appeal_blacklist`, model failure | +v | | | +v | | 0 |
+| `appeal_blacklist` (v ≥ A, fee f = ⌊A/5⌋, rest R = A−f), cleared | +v | | | +(v−A)+R | +f | 0 |
+| `appeal_blacklist`, denied | +v | +⌊R/2⌋ | | +(v−A) | +f+(R−⌊R/2⌋) | 0 |
+| `appeal_blacklist`, inconclusive or model failure | +v | | | +(v−A)+R | +f | 0 |
+| confirmed inside the payout cooldown (reward 0) | | | −B | +B | | 0 |
 | `deactivate_brand` (pool P) | | −P | | +P | | 0 |
 | `pull_withdraw` (A) | −A | | | −A | | 0 |
 | `sweep_vault` (A) | −A | | | | −A | 0 |
@@ -295,7 +299,7 @@ A verdict is a statement about **the page as the validators fetched it at adjudi
 
 ### 8.5 Economic and governance boundaries
 
-* **Bounty farming with decoys.** An actor can build a lookalike page against a brand that others funded, report it, and collect 20% of the pool (cap 1 GEN). The geometric decay bounds the loss per brand but does not remove the incentive. Brands should fund pools they can afford to see paid out.
+* **Bounty farming with decoys.** An actor can build a lookalike page against a brand, report it, and collect 20% of the pool (cap 1 GEN). The payout throttle (§8.10) limits this to one bounty per brand per 6 hours, and the geometric decay bounds the loss, but neither removes the incentive. Brands should fund pools they can afford to see paid out.
 * **First-come registration, governor verification.** Anyone can register a brand name and domains with 0.5 GEN, so a squatter can take "Uniswap" first. The squatter's brand is *unverified*: it cannot be reported against and nothing about it is presented as authentic by the frontend, but it does hold the name until the governor calls `deactivate_brand`, which returns only the squatter's own pool. The contract cannot prove domain ownership, so verification is the governor's off-chain judgement and the governor is a trusted role.
 * **Funding freeze as griefing.** While any report against a brand is pending, `fund_bounty` and `deactivate_brand` revert for that brand. A griefer can keep a report pending, at the cost of a bond that is refunded minus the void fee.
 * **Governor** can verify and unverify brands, unblacklist hosts, sweep the vault, rotate the governor key, deactivate any brand and fund any pool. It cannot touch bonds or credits.
@@ -335,16 +339,40 @@ What this means in practice:
 
 | Path | Who | What happens |
 |---|---|---|
-| `appeal_blacklist(host)` | anyone, 0.5 GEN bond | Validators re-read the page now, in one transaction. Cleared: entry removed, bond returned. Still phishing: appeal denied, bond slashed 50/50 (the original brand's pool, or the vault if that brand is retired). Unreachable: inconclusive, 20% fee kept, entry stays. Model failure: nothing changes, bond returned. Any overpayment is credited back. |
+| `appeal_blacklist(host)` | anyone, 1.0 GEN bond, no sooner than 6 hours after the listing or the previous appeal | Validators re-read the page now, in one transaction. 0.2 GEN is a non-refundable protocol fee in **every** outcome. The other 0.8 GEN: cleared, entry removed and 0.8 returned; still phishing, appeal denied and 0.8 slashed 50/50 (the original brand's pool, or the vault if that brand is retired); unreachable, inconclusive and 0.8 returned, entry stays; model failure, nothing decided and 0.8 returned. Any overpayment is credited back. |
 | `unblacklist_host(host)` | governor | Direct removal after off-chain review. |
 
 Limits worth knowing:
 
 * **Identity is not checked.** The contract cannot tell a domain's owner from anyone else, so the bond is the gate. A cleared page wins the appeal whoever submits it.
-* **Appeals inherit the cloaking weakness (§8.2).** A phishing kit that shows validators a clean page can win an appeal and be removed, then switch back. The only remedy is a new report, which costs a new bond, and the original reporter's reward is not clawed back.
+* **Appeals inherit the cloaking weakness (§8.2).** A phishing kit that shows validators a clean page can win an appeal and be removed, then switch back. The fee, bond and cooldown make each attempt cost money and time, but they do not make it impossible. The only remedy is a new report, and the original reporter's reward is not clawed back.
 * **A takedown does not clear a listing.** An unreachable page is inconclusive, so a host stays listed while offline.
 * **Only an exact listed host can be appealed.** A subdomain covered by a listed parent is appealed through the parent. Removing a parent frees its subdomains.
 * **History is kept.** The report stays `CONFIRMED` and is flagged `overturned`.
+
+### 8.10 Reporter window, payout throttle and appeal cost
+
+**Reporter-exclusive adjudication (anti front-running).** For the first 15 minutes after a report is filed, only its reporter may call `adjudicate_report`; anyone else reverts with `ERR_REPORTER_EXCLUSIVE_WINDOW`. Without it, the accused could scrub their page, call `adjudicate_report` themselves at that instant, and have the validators read a clean page, slashing the reporter's bond. What it does and does not do:
+
+* It removes the *timing* attack: the accused cannot choose the moment of the first read.
+* It does **not** stop cloaking or a takedown after the window. Once 15 minutes have passed anyone may adjudicate, and a page that is clean then is judged clean. A reporter should therefore adjudicate their own report promptly, ideally in the same minute they file it.
+* Keepers adjudicating on others' behalf must wait out the window, so an abandoned report waits at least 15 minutes.
+* Rescue is unchanged: the reporter or governor can void a stuck report after 2 hours, anyone after 24 hours.
+
+**Payout throttle (anti decoy farming).** A brand pays at most one bounty per 6 hours, measured from its last *paid* bounty. A confirmation inside the cooldown still sets `CONFIRMED_PHISHING`, blacklists the host and returns the reporter's bond in full, but pays no reward (`report.reward` is `0` and the pool is untouched). Twelve throwaway subdomains filed together pay one bounty, not twelve. Costs and limits:
+
+* An honest reporter who confirms a real phishing site inside a cooldown earns no reward for it, only their bond back. That is the price of the brake.
+* A farmer still earns one decoy bounty per brand per 6 hours (20% of the current pool, cap 1 GEN), so the incentive is reduced, not removed.
+* A confirmation that paid nothing does not extend the cooldown, and rejections and voids never touch it.
+* The alternative of capping each payout at a tenth of the pool was not used; the cooldown is simpler to reason about and to test.
+
+**Appeal cost (anti cloaking probes).** An appeal costs 1.0 GEN, of which 0.2 GEN is a non-refundable fee that goes to the vault **in every outcome**, including a model failure and an appeal that wins. It compensates validator execution and makes each probe of a cloaked page cost money. An appeal must also wait 6 hours after the listing and, as implemented, after the previous appeal on that host (the brief required the wait before the *first* appeal; applying it to every appeal stops rapid repeated probing). Limits:
+
+* An honest appellant pays 0.2 GEN even when the model fails and nothing is decided.
+* The fee and cooldown are a price, not a wall: a kit willing to pay 0.2 GEN per probe every 6 hours can still test its cloaking.
+* The governor's `unblacklist_host` is unaffected: no bond and no cooldown.
+
+**Bounded queue compaction.** The pending list is a reference list and `_compact_queue` skips at most 25 resolved entries per transaction, so a long resolved prefix cannot make one call arbitrarily expensive. Compaction simply continues in the next call. Correctness never depends on it: `pending_count` is a separate counter and `get_queue_state` skips resolved entries itself.
 
 ---
 
@@ -352,11 +380,11 @@ Limits worth knowing:
 
 ```bash
 uv venv --python 3.12 && uv pip install --prerelease=allow -r requirements.txt
-.venv/bin/python -m pytest -q            # 321 passed in ~25 s
+.venv/bin/python -m pytest -q            # 346 passed in ~27 s
 .venv/bin/genvm-lint check contracts/phish_patrol.py
 ```
 
-* **321 tests, 6,427 executed passing assertions** (counted with pytest's assertion-pass hook; the requirement was ≥ 180). The suite runs the real contract in-process with web and LLM mocked.
+* **346 tests, 8,060 executed passing assertions** (counted with pytest's assertion-pass hook; the requirement was ≥ 180). The suite runs the real contract in-process with web and LLM mocked.
 * **Canonicalisation:** 26 accepted and 84 rejected URL forms across every category in §4, idempotence, userinfo smuggling.
 * **Registration, funding, reporting:** every bound and error code, name and domain uniqueness, dynamic-bond table, overpayment credit, owner-only funding.
 * **Verified brands and scoped domains:** unverified brands refuse reports, only the governor verifies, a squatter cannot weaponise the oracle, the official-domain exemption is per target brand and a squatter's claimed domains shield nothing.
@@ -368,7 +396,7 @@ uv venv --python 3.12 && uv pip install --prerelease=allow -r requirements.txt
 * **Atomicity:** every expected revert asserts the overview and queue are unchanged.
 * **Lint:** a test runs `genvm-lint check` and requires zero errors.
 
-**Mutation testing.** Two rounds of deliberate bugs were injected into copies of the contract. Round one (29 bugs: 50/50 slash → 60/40, reward cap doubled, FIFO check removed, freeze removed, IPv6 allowed, validator always agrees, sweep open to all, and so on) killed 28; the survivor exposed a missing test for which `@` ends userinfo, which was added. Round two targeted the security changes (27 bugs: official check made global again, verification check removed, funding opened to everyone, stranger voiding after 2 hours, tolerance widened or narrowed, reasoning and score-type checks removed, every appeal branch, governor checks removed on `verify_brand` and `unblacklist_host`, auto-verification for everyone, counters not decremented). It killed all but two: one was a malformed mutant that changed nothing, the other exposed a genuine gap (nothing asserted the overview's `pending_count` after settlement), which was closed with new tests. Re-run properly, both are killed.
+**Mutation testing.** Two rounds of deliberate bugs were injected into copies of the contract. Round one (29 bugs: 50/50 slash → 60/40, reward cap doubled, FIFO check removed, freeze removed, IPv6 allowed, validator always agrees, sweep open to all, and so on) killed 28; the survivor exposed a missing test for which `@` ends userinfo, which was added. Round two targeted the security changes (27 bugs: official check made global again, verification check removed, funding opened to everyone, stranger voiding after 2 hours, tolerance widened or narrowed, reasoning and score-type checks removed, every appeal branch, governor checks removed on `verify_brand` and `unblacklist_host`, auto-verification for everyone, counters not decremented). It killed all but two: one was a malformed mutant that changed nothing, the other exposed a genuine gap (nothing asserted the overview's `pending_count` after settlement), which was closed with new tests. Re-run properly, both are killed. Round three (26 bugs) targeted the §8.10 protections: the exclusive window removed, zeroed, widened, inverted and off by one at its boundary; the payout cooldown removed, shortened and off by one; the payout clock set on zero rewards or never set; a throttled confirmation forfeiting the bond; the appeal fee not kept, refunded on a win or halved; the appeal bond reverted to 0.5 GEN; the appeal cooldown removed, shortened, off by one, or ignoring the previous appeal; listing and appeal times not recorded; a denied appeal slashing the fee twice; and compaction unbounded or capped at 1 or 24 steps. All 26 are killed, with no survivors.
 
 **What the direct suite cannot show:** real validator agreement, real LLM variance and real network behaviour. That is what §10 is for.
 
@@ -384,7 +412,7 @@ uv venv --python 3.12 && uv pip install --prerelease=allow -r requirements.txt
 
 Accounts are created fresh for this project on first run (keys in a gitignored `.env`) and funded from the Studio faucet. Nothing reads another project's keystore.
 
-**Deployed:** `0x2f74318e2E0FA48B1665007Cc3210d6b3a141f9e` on Studio Next (chain 61997), deploy transaction `0x693208fa04eefe1c1000f85fef90c7d8c57125ca1f422249c1369ef99d64a63b`. This is the hardened revision with verified brands, independent adjudication, owner-only funding, score-bound validator equivalence and appeals. The earlier instances are kept as `predecessors` in the deployment record. The source submitted in the deploy transaction hashes (SHA-256 `0360d7e8…2529`) to the in-tree `contracts/phish_patrol.py`; the check reads the deploy payload because the explorer's address endpoint no longer returns the source for this instance.
+**Deployed:** `0x2f74318e2E0FA48B1665007Cc3210d6b3a141f9e` on Studio Next (chain 61997), deploy transaction `0x693208fa04eefe1c1000f85fef90c7d8c57125ca1f422249c1369ef99d64a63b`. This is the hardened revision with verified brands, independent adjudication, owner-only funding, score-bound validator equivalence and appeals. **It does not include the §8.10 changes** (reporter window, payout throttle, 1.0 GEN appeal bond with fee and cooldown, bounded compaction), which are in the repository contract and its tests but have not been redeployed; the live results below describe the instance as deployed, including a 0.5 GEN appeal bond and a 20% fee on only the inconclusive outcome. The earlier instances are kept as `predecessors` in the deployment record. The source submitted in the deploy transaction hashes (SHA-256 `0360d7e8…2529`) to the in-tree `contracts/phish_patrol.py`; the check reads the deploy payload because the explorer's address endpoint no longer returns the source for this instance.
 
 | Case | What ran | Observed |
 |---|---|---|
@@ -439,7 +467,7 @@ The refused calls and the final `sweep_vault` share a state hash because they le
 ```
 contracts/phish_patrol.py        the protocol
 tests/conftest.py                Env fixture: independent ledger, atomicity checks, mocks
-tests/test_phish_patrol.py       321 tests
+tests/test_phish_patrol.py       346 tests
 scripts/common.py                chain plumbing: accounts, fees, consensus + state-hash extraction
 scripts/deploy.py                deploy to Studio Next, write the deployment record
 scripts/interact_live.py         the five live cases and settlement
