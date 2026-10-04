@@ -14,6 +14,12 @@ contract state hash each validator computed.
         (needs --phish-url: a reachable page that really does mimic the brand)
   4  false positive: an official, benign Uniswap page -> rejected, bond slashed 50/50
   5  unreachable / 404 page -> AMBIGUOUS_VOID, 80/20 fee split
+  6  access control: an unverified brand cannot be reported; a non-owner cannot fund a pool
+  7  appeal: the Case 3 host after its page is taken down -> APPEAL_INCONCLUSIVE, entry kept
+        (run on its own with --only 7 once the fixture tunnel is gone)
+  8  no head-of-line blocking: two pending reports settled newest-first
+
+Brands start unverified, so Cases 1 and 2 are followed by a governor verify_brand.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ from common import (
 
 SEED = ATTO // 2
 MIN_BOND = ATTO // 10
+APPEAL_BOND = ATTO // 2
 
 BENIGN_OFFICIAL_URL = "https://blog.uniswap.org/"  # Uniswap-owned, answers 200, not a registered official host
 NOT_FOUND_URL = "https://example.com/phishpatrol-uniswap-claim-404"  # answers 404
@@ -79,8 +86,24 @@ class Live:
 
     def fund(self) -> None:
         for chain, role in ((self.owner, "brand"), (self.rep, "reporter")):
-            have = chain.ensure_funded(20 * ATTO)
+            have = chain.ensure_funded(5 * ATTO)
             log(f"  {role:8s} {chain.account.address} holds {have / ATTO:.2f} GEN")
+
+    def file(self, brand_id: int, url: str, txs: list) -> int:
+        bond = int(self.gov.read("required_bond", brand_id))
+        out = self.rep.write("report_phishing", brand_id, url, value=bond, label=f"report {url}")
+        txs.append(tx_entry("report_phishing", out))
+        return int(self.overview()["report_count"])
+
+    def adjudicate(self, report_id: int, txs: list, retries: int = 3) -> dict:
+        for attempt in range(1, retries + 1):
+            adj = self.gov.write("adjudicate_report", report_id, label=f"adjudicate #{report_id} (attempt {attempt})")
+            txs.append(tx_entry(f"adjudicate_report attempt {attempt}", adj))
+            rec = self.gov.read("get_report", report_id)
+            if int(rec["status"]) != 0:
+                return rec
+            log(f"      report #{report_id} still pending after attempt {attempt} (exec_failures={rec['exec_failures']})")
+        raise ChainError(f"report #{report_id} was not settled after {retries} adjudication attempts")
 
     def file_and_adjudicate(self, brand_id: int, url: str, txs: list, retries: int = 3) -> tuple[int, dict]:
         """Reporter files, a third party (the governor key) adjudicates. A round
@@ -105,9 +128,14 @@ def case1_2(live: Live, name: str, domains: list[str], expect_id: int) -> dict:
     before = live.overview()
     out = live.owner.write("register_brand", name, domains, value=SEED, label=f"register {name}")
     txs.append(tx_entry("register_brand", out))
+    unverified = live.gov.read("get_brand", expect_id)
+    vout = live.gov.write("verify_brand", expect_id, label=f"verify {name} (governor)")
+    txs.append(tx_entry("verify_brand", vout))
     brand = live.gov.read("get_brand", expect_id)
     after = live.overview()
     checks = [
+        check("starts unverified", unverified["is_verified"], False),
+        check("verified by the governor", brand["is_verified"], True),
         check("brand_id", int(brand["brand_id"]), expect_id),
         check("brand_name", brand["brand_name"], name),
         check("canonical_domains", brand["canonical_domains"], domains),
@@ -178,6 +206,103 @@ def case5(live: Live) -> dict:
     return {"txs": txs, "checks": checks, "report_id": report_id, "report": rec}
 
 
+def surplus_of(ov: dict) -> int:
+    return int(ov["balance"]) - int(ov["tracked"])
+
+
+def wait_surplus(live: Live, baseline: int, tries: int = 40) -> dict:
+    """Poll until balance - tracked returns to `baseline`, i.e. the refund of a
+    reverted payable call has landed. (Studio Next refunds at finalization, and
+    this instance may carry a standing surplus from skipped payouts, so the exact
+    identity is checked as a *delta*, not as balance == tracked.)"""
+    ov = live.overview()
+    for _ in range(tries):
+        if surplus_of(ov) == baseline:
+            break
+        time.sleep(6)
+        ov = live.overview()
+    return ov
+
+
+def case6(live: Live) -> dict:
+    """Two calls that must be refused, checked by their on-chain effect: the
+    transaction ends FINISHED_WITH_ERROR and no state moves."""
+    txs: list = []
+    count = int(live.overview()["brand_count"])
+    if count >= 3 and live.gov.read("get_brand", count)["brand_name"] == "Unverified Demo":
+        squat_id = count  # re-run: reuse the brand registered earlier
+    else:
+        out = live.owner.write("register_brand", "Unverified Demo", ["squat-demo.xyz"], value=SEED, label="register Unverified Demo")
+        txs.append(tx_entry("register_brand", out))
+        squat_id = int(live.overview()["brand_count"])
+    before = live.overview()
+    baseline = surplus_of(before)
+    pool_uni = int(live.gov.read("get_brand", 1)["bounty_pool"])
+    bond = int(live.gov.read("required_bond", squat_id))
+
+    r1 = live.rep.write("report_phishing", squat_id, "https://app.example.org/", value=bond,
+                        label="report against an UNVERIFIED brand (must revert)", allow_exec_failure=True)
+    txs.append(tx_entry("report_phishing (unverified brand)", r1))
+    r2 = live.rep.write("fund_bounty", 1, value=ATTO // 100, label="fund by a non-owner (must revert)", allow_exec_failure=True)
+    txs.append(tx_entry("fund_bounty (non-owner)", r2))
+    # A reverted payable call's value is refunded when the transaction finalizes,
+    # not when it is decided, so the solvency identity is only exact after that.
+    after = wait_surplus(live, baseline)
+    checks = [
+        check("unverified brand starts unverified", live.gov.read("get_brand", squat_id)["is_verified"], False),
+        check("report against it ends in an error", r1["consensus"]["execution"], "FINISHED_WITH_ERROR"),
+        check("non-owner funding ends in an error", r2["consensus"]["execution"], "FINISHED_WITH_ERROR"),
+        check("no report was created", int(after["report_count"]), int(before["report_count"])),
+        check("no bond was locked", int(after["total_locked_bonds"]), int(before["total_locked_bonds"])),
+        check("Uniswap pool unchanged by the refused funding", int(live.gov.read("get_brand", 1)["bounty_pool"]), pool_uni),
+        check("refunds landed: balance - tracked is unchanged by the refused calls", surplus_of(after), baseline),
+    ]
+    return {"txs": txs, "checks": checks, "unverified_brand_id": squat_id}
+
+
+def case7(live: Live) -> dict:
+    """Appeal the confirmed host from Case 3 after its page is gone."""
+    txs: list = []
+    rec3 = live.gov.read("get_report", 1)
+    host = rec3["canonical_host"]
+    before = live.overview()
+    baseline = surplus_of(before)
+    me = live.rep.account.address
+    claim_before = int(live.gov.read("claimable_of", me))
+    # No fee simulation: it would fetch the (dead) host and can hang; the policy estimate is used.
+    out = live.rep.write("appeal_blacklist", host, value=APPEAL_BOND, label=f"appeal {host}", simulate=False)
+    txs.append(tx_entry("appeal_blacklist", out))
+    after = live.overview()
+    fee = APPEAL_BOND * 20 // 100
+    checks = [
+        check("appeal outcome", out["returned"], "APPEAL_INCONCLUSIVE"),
+        check("a takedown does not clear the entry", live.gov.read("is_phishing", host), True),
+        check("20% fee to vault", int(after["protocol_vault"]) - int(before["protocol_vault"]), fee),
+        check("80% refunded as credit", int(live.gov.read("claimable_of", me)) - claim_before, APPEAL_BOND - fee),
+        check("every wei of the bond is accounted for (balance - tracked unchanged)", surplus_of(after), baseline),
+    ]
+    return {"txs": txs, "checks": checks, "host": host}
+
+
+def case8(live: Live) -> dict:
+    txs: list = []
+    a = live.file(1, "https://example.com/phishpatrol-order-a-404", txs)
+    b = live.file(1, BENIGN_OFFICIAL_URL, txs)
+    log(f"      filed #{a} then #{b}; adjudicating #{b} first")
+    rec_b = live.adjudicate(b, txs)
+    still = live.gov.read("get_queue_state")
+    mid_pending = [int(x) for x in still["pending_ids"]]
+    rec_a = live.adjudicate(a, txs)
+    checks = [
+        check("newest report settles first", rec_b["verdict"], "REJECTED_FALSE_POSITIVE"),
+        check("older report still pending meanwhile", mid_pending, [a]),
+        check("older report settles afterwards", rec_a["verdict"], "AMBIGUOUS_VOID"),
+        check("nothing left pending", int(live.overview()["pending_count"]), 0),
+        check("solvent", live.overview()["solvent"], True),
+    ]
+    return {"txs": txs, "checks": checks, "report_ids": [a, b]}
+
+
 def settle(live: Live) -> dict:
     """Pull-pattern payouts: the reporter withdraws its credit, the governor
     sweeps the vault. Transfers settle at finalization, so poll until the
@@ -236,7 +361,7 @@ def main() -> int:
     ap.add_argument("--only", help="comma list of cases to run, e.g. 3 or 4,5 (default: all)")
     ap.add_argument("--no-settle", action="store_true", help="skip the final withdraw/sweep")
     args = ap.parse_args()
-    only = {int(x) for x in args.only.split(",")} if args.only else {1, 2, 3, 4, 5}
+    only = {int(x) for x in args.only.split(",")} if args.only else {1, 2, 3, 4, 5, 6, 8}
 
     record = json.loads(DEPLOYMENT_FILE.read_text())
     live = Live(record["contract_address"])
@@ -271,9 +396,15 @@ def main() -> int:
          lambda: case4(live)),
         (5, "Unreachable / 404 page -> AMBIGUOUS_VOID, 80/20 fee split",
          lambda: case5(live)),
+        (6, "Access control: unverified brand cannot be reported, non-owner cannot fund",
+         lambda: case6(live)),
+        (7, "Appeal after takedown -> APPEAL_INCONCLUSIVE, blacklist entry kept",
+         lambda: case7(live)),
+        (8, "No head-of-line blocking: newest pending report settled first",
+         lambda: case8(live)),
     ]
     cases_out: list[dict] = []
-    for n, title, fn in plan:
+    for n, title, fn in sorted(plan, key=lambda x: {6: 2.5, 8: 5.5, 7: 9}.get(x[0], x[0])):
         if n not in only:
             continue
         log(f"\nCase {n}: {title}")
@@ -292,6 +423,8 @@ def main() -> int:
     if not args.no_settle and results:
         log("\nSettlement: pull_withdraw (reporter) + sweep_vault (governor)")
         try:
+            if "settlement" in record:
+                record.setdefault("settlement_history", []).append(record["settlement"])
             record["settlement"] = settle(live)
         except Exception as exc:  # noqa: BLE001
             log(f"      FAIL: {exc}")
@@ -309,6 +442,7 @@ def main() -> int:
         "governor": live.gov.account.address, "brand_owner": live.owner.account.address,
         "reporter": live.rep.account.address,
     }
+    record["queue_semantics"] = "independent adjudication; stale void by reporter/governor after 2h, by anyone after 24h"
     record["live_run_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     save_json(DEPLOYMENT_FILE, record)
 

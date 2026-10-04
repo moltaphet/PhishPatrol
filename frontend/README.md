@@ -32,5 +32,6 @@ pnpm build && pnpm lint
 * **`genlayer-js` is on the `rc` tag.** 1.1.8 encodes calls in an older calldata layout that Studio Next's contracts reject (`malformed_entry`); 2.0.0-rc.1 works.
 * **Writes carry an explicit fee estimate.** Studio Next rejects a transaction with no fee deposit (`FeeValueMustBeNonZero`).
 * **Consensus telemetry** in the feed comes from `proof.json` for the reports it covers (votes, state hash, explorer links). The contract does not store transaction hashes, so reports filed later show the stored verdict and scores without a hash.
+* **Verified brands.** Only governor-verified brands show as protected or accept reports; an unverified registrant's domains are never shown as authentic. Only a brand's owner can top up its pool, so the Top up button is disabled for other wallets.
 * **Withdrawals:** Studio Next currently skips payout transfers, so `Withdraw Rewards` clears the on-chain credit without delivering GEN there. The widget says so. See the root README section 8.7.
 * **Scam classes** (Typosquat, Impersonation, Drainer) are derived from the stored scores with the contract's own thresholds (40, 40, 50).

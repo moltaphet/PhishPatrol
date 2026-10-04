@@ -29,7 +29,7 @@ export function AboutSection() {
           <IconTile tone="bg-sys-blue/15 text-[#5aa9ff]"><Network className="h-6 w-6" strokeWidth={1.7} /></IconTile>
           <h3 className="mt-6 text-xl font-semibold tracking-tight text-zinc-50 sm:text-2xl">Multi-Validator Equivalence Consensus</h3>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-zinc-400 sm:text-[15px]">
-            When a report reaches the front of the queue, the leader and every validator fetch the raw HTML and headers on their own. Each
+            When someone calls for adjudication, the leader and every validator fetch the raw HTML and headers on their own. Each
             runs the same deterministic checks in code, such as host lookalike analysis and a scan for drainer signatures, then asks a model to
             score three threat dimensions. The verdict is computed from those scores by code, and the validators agree only if they reach the
             same one.

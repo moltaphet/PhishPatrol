@@ -26,7 +26,7 @@ export async function inspectDomain(input: string, snapshot: Snapshot): Promise<
   const host = c.host;
 
   if (snapshot.source === "demo") {
-    const brand = snapshot.brands.find((b) => b.domains.includes(host));
+    const brand = snapshot.brands.find((b) => b.verified && b.domains.includes(host));
     if (brand) return { kind: "authentic", host, brand };
     const hit = demoBlacklist().find((h) => host === h || host.endsWith(`.${h}`));
     if (hit) {
@@ -38,8 +38,9 @@ export async function inspectDomain(input: string, snapshot: Snapshot): Promise<
 
   const [flagged, brandId] = await Promise.all([pp.isPhishing(host), pp.getBrandIdByDomain(host)]);
   if (brandId !== null) {
+    // An unverified registrant's claimed domains are not authentic: anyone can register a name.
     const brand = snapshot.brands.find((b) => b.id === brandId) ?? (await pp.getBrand(brandId));
-    return { kind: "authentic", host, brand };
+    if (brand.verified) return { kind: "authentic", host, brand };
   }
   if (flagged) {
     const src = await pp.getBlacklistSource(host);

@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from conftest import (
-    ATTO, BENIGN_HTML, BENIGN_SCORES, CONFIRMED, CONTRACT, MIN_BOND, PENDING,
+    APPEAL_BOND, ATTO, BENIGN_HTML, BENIGN_SCORES, CONFIRMED, CONTRACT, MIN_BOND, PENDING,
     PHISH_HTML, PHISH_SCORES, REJECTED, SEED, V_CONFIRMED, V_FAIL, V_REJECTED,
     V_STALE, V_VOID, VOIDED, scores,
 )
@@ -314,9 +314,9 @@ def test_fund_bounty_tops_up_the_pool(env, uni):
     assert env.ov()["total_bounties"] == SEED + 2 * ATTO
 
 
-def test_anyone_can_fund_a_brand(env, uni):
-    env.tx(env.carol, "fund_bounty", uni, value=ATTO)
-    env.tx(env.dave, "fund_bounty", uni, value=3)
+def test_the_owner_and_governor_can_fund_a_brand(env, uni):
+    env.tx(env.alice, "fund_bounty", uni, value=ATTO)
+    env.tx(env.governor, "fund_bounty", uni, value=3)
     assert env.c.get_brand(uni)["bounty_pool"] == SEED + ATTO + 3
 
 
@@ -330,7 +330,7 @@ def test_fund_bounty_rejects_zero_unknown_and_inactive(env, uni):
 def test_fund_bounty_is_frozen_while_a_report_is_pending(env, uni):
     env.report(env.bob, uni, "https://scam-one.xyz/")
     env.rev("ERR_CHALLENGE_IN_PROGRESS", env.alice, "fund_bounty", uni, value=ATTO)
-    env.rev("ERR_CHALLENGE_IN_PROGRESS", env.carol, "fund_bounty", uni, value=1)
+    env.rev("ERR_CHALLENGE_IN_PROGRESS", env.governor, "fund_bounty", uni, value=1)
     assert env.c.get_brand(uni)["bounty_pool"] == SEED
 
 
@@ -351,7 +351,7 @@ def test_freeze_clears_only_when_the_last_pending_report_resolves(env, uni):
 def test_freeze_is_per_brand(env, uni_meta):
     uni, mm = uni_meta
     env.report(env.bob, uni, "https://scam-one.xyz/")
-    env.tx(env.alice, "fund_bounty", mm, value=ATTO)
+    env.tx(env.carol, "fund_bounty", mm, value=ATTO)  # MetaMask is carol's
     assert env.c.get_brand(mm)["bounty_pool"] == SEED + ATTO
     env.rev("ERR_CHALLENGE_IN_PROGRESS", env.alice, "fund_bounty", uni, value=ATTO)
 
@@ -425,12 +425,11 @@ def test_report_overpayment_is_credited_not_locked(env, uni):
     assert env.c.claimable_of(env.c.whoami()) == 7
 
 
-def test_report_against_an_official_domain_reverts(env, uni_meta):
+def test_report_against_the_targets_own_official_domain_reverts(env, uni_meta):
     uni, mm = uni_meta
     for url in ["https://uniswap.org/", "https://www.uniswap.org/x", "app.uniswap.org", "HTTPS://APP.UNISWAP.ORG"]:
         env.rev("ERR_OFFICIAL_DOMAIN", env.bob, "report_phishing", uni, url, value=MIN_BOND)
-    # another brand's official domain is also off limits, whichever brand is named
-    env.rev("ERR_OFFICIAL_DOMAIN", env.bob, "report_phishing", uni, "https://metamask.io/", value=MIN_BOND)
+    env.rev("ERR_OFFICIAL_DOMAIN", env.bob, "report_phishing", mm, "https://metamask.io/", value=MIN_BOND)
 
 
 def test_official_whitelist_is_exact_not_suffix(env, uni):
@@ -472,7 +471,7 @@ def test_report_against_a_blacklisted_host_or_its_subdomain_reverts(env, uni):
         env.rev("ERR_ALREADY_BLACKLISTED", env.carol, "report_phishing", uni, url, value=MIN_BOND)
 
 
-def test_reports_enter_a_single_fifo_queue(env, uni_meta):
+def test_reports_are_tracked_oldest_first(env, uni_meta):
     uni, mm = uni_meta
     r1 = env.report(env.bob, uni, "https://one.xyz/")
     r2 = env.report(env.bob, mm, "https://two.xyz/")
@@ -480,9 +479,8 @@ def test_reports_enter_a_single_fifo_queue(env, uni_meta):
     assert (r1, r2, r3) == (1, 2, 3)
     q = env.c.get_queue_state()
     assert q["pending_ids"] == [1, 2, 3]
-    assert q["head_report_id"] == 1
+    assert q["oldest_pending_id"] == 1
     assert q["pending_count"] == 3
-    assert q["head_since"] == env.now()
     assert env.ov()["total_locked_bonds"] == 3 * MIN_BOND
 
 
@@ -586,15 +584,14 @@ def test_confirmed_host_cannot_be_reported_again(env, uni):
             "https://uniswap-app.xyz/claim", value=MIN_BOND)
 
 
-def test_confirmation_advances_the_queue(env, uni):
+def test_confirmation_removes_the_report_from_the_pending_list(env, uni):
     env.phish_world()
     r1 = env.report(env.bob, uni, "https://one.xyz/")
     r2 = env.report(env.bob, uni, "https://two.xyz/")
     env.adjudicate(r1)
     q = env.c.get_queue_state()
     assert q["pending_ids"] == [r2]
-    assert q["head_report_id"] == r2
-    assert q["head_since"] == env.now()
+    assert q["oldest_pending_id"] == r2
 
 
 # =============================================================================
@@ -888,7 +885,7 @@ def test_unusable_model_output_is_an_execution_failure(env, uni, payload):
     assert r["status"] == PENDING
     assert r["exec_failures"] == 1
     assert env.ov()["total_locked_bonds"] == MIN_BOND
-    assert env.c.get_queue_state()["head_report_id"] == rid
+    assert env.c.get_queue_state()["pending_ids"] == [rid]
 
 
 def test_a_missing_llm_mock_is_an_execution_failure(env, uni):
@@ -913,43 +910,48 @@ def test_failures_accumulate_and_a_later_success_settles(env, uni):
     assert env.c.get_report(rid)["exec_failures"] == 2  # history is kept
 
 
-def test_a_failed_round_blocks_the_queue_behind_it(env, uni):
+def test_a_failed_round_does_not_block_other_reports(env, uni):
     env.reset_mocks()
     env.page(r".*", PHISH_HTML)
     env.llm_raw(json.dumps("junk"))
     r1 = env.report(env.bob, uni, "https://one.xyz/")
     r2 = env.report(env.bob, uni, "https://two.xyz/")
     assert env.adjudicate(r1) == V_FAIL
-    env.rev("ERR_NOT_QUEUE_HEAD", env.dave, "adjudicate_report", r2)
+    env.reset_mocks()
+    env.page(r".*", PHISH_HTML)
+    env.llm(*PHISH_SCORES)
+    assert env.adjudicate(r2) == V_CONFIRMED  # r1 is still pending and does not matter
+    assert env.c.get_queue_state()["pending_ids"] == [r1]
 
 
 # =============================================================================
-# 10. Strict FIFO
+# 10. Independent adjudication (no head-of-line blocking)
 # =============================================================================
-def test_only_the_head_can_be_adjudicated(env, uni):
+def test_any_pending_report_can_be_adjudicated_in_any_order(env, uni):
     env.phish_world()
     r1 = env.report(env.bob, uni, "https://one.xyz/")
     r2 = env.report(env.bob, uni, "https://two.xyz/")
     r3 = env.report(env.bob, uni, "https://three.xyz/")
-    env.rev("ERR_NOT_QUEUE_HEAD", env.dave, "adjudicate_report", r2)
-    env.rev("ERR_NOT_QUEUE_HEAD", env.dave, "adjudicate_report", r3)
-    assert env.adjudicate(r1) == V_CONFIRMED
-    env.rev("ERR_NOT_QUEUE_HEAD", env.dave, "adjudicate_report", r3)
+    assert env.adjudicate(r3) == V_CONFIRMED  # the newest first
+    assert env.c.get_queue_state()["pending_ids"] == [r1, r2]
     assert env.adjudicate(r2) == V_CONFIRMED
-    assert env.adjudicate(r3) == V_CONFIRMED
+    assert env.c.get_queue_state()["pending_ids"] == [r1]
+    assert env.adjudicate(r1) == V_CONFIRMED
     assert env.c.get_queue_state()["pending_count"] == 0
 
 
-def test_queue_state_tracks_progress(env, uni):
+def test_queue_state_tracks_progress_when_the_middle_resolves_first(env, uni):
     env.benign_world()
-    ids = [env.report(env.bob, uni, f"https://scam{i}.xyz/") for i in range(4)]
-    for done in range(4):
-        q = env.c.get_queue_state()
-        assert q["pending_ids"] == ids[done:]
-        assert q["head_report_id"] == ids[done]
-        env.adjudicate(ids[done])
+    ids = [env.report(env.bob, uni, f"https://scam{i}.xyz/") for i in range(5)]
+    for done in (ids[2], ids[0], ids[4]):
+        env.adjudicate(done)
     q = env.c.get_queue_state()
-    assert q == {"head_report_id": 0, "pending_count": 0, "pending_ids": [], "head_since": q["head_since"]}
+    assert q["pending_ids"] == [ids[1], ids[3]]
+    assert q["oldest_pending_id"] == ids[1]
+    assert q["pending_count"] == 2
+    env.adjudicate(ids[1])
+    env.adjudicate(ids[3])
+    assert env.c.get_queue_state() == {"oldest_pending_id": 0, "pending_count": 0, "pending_ids": []}
 
 
 def test_a_resolved_report_cannot_be_adjudicated_again(env, uni):
@@ -973,57 +975,67 @@ def test_anyone_may_adjudicate_including_the_reporter(env, uni):
     assert env.adjudicate(r2, who=env.governor) == V_CONFIRMED
 
 
-def test_the_queue_is_shared_across_brands(env, uni_meta):
+def test_reports_on_different_brands_settle_independently(env, uni_meta):
     uni, mm = uni_meta
     env.benign_world()
     a = env.report(env.bob, uni, "https://one.xyz/")
     b = env.report(env.bob, mm, "https://two.xyz/")
-    env.rev("ERR_NOT_QUEUE_HEAD", env.dave, "adjudicate_report", b)
-    env.adjudicate(a)
     env.adjudicate(b)
-    assert env.c.get_brand(uni)["bounty_pool"] == SEED + MIN_BOND // 2
     assert env.c.get_brand(mm)["bounty_pool"] == SEED + MIN_BOND // 2
+    assert env.c.get_brand(uni)["bounty_pool"] == SEED  # untouched while its report waits
+    env.adjudicate(a)
+    assert env.c.get_brand(uni)["bounty_pool"] == SEED + MIN_BOND // 2
 
 
-# =============================================================================
-# 11. Head-of-line protection
-# =============================================================================
-def fail_twice(env, uni, url="https://stuck.xyz/"):
+def test_a_stuck_page_cannot_hold_up_the_reports_filed_after_it(env, uni):
     env.reset_mocks()
-    env.page(r".*", PHISH_HTML)
+    env.page(r".*stuck\.xyz.*", PHISH_HTML)
     env.llm_raw(json.dumps("junk"))
-    rid = env.report(env.bob, uni, url)
-    assert env.adjudicate(rid) == V_FAIL
-    assert env.adjudicate(rid) == V_FAIL
-    return rid
+    stuck = env.report(env.bob, uni, "https://stuck.xyz/")
+    later = [env.report(env.bob, uni, f"https://fine{i}.xyz/") for i in range(3)]
+    env.reset_mocks()
+    env.page(r".*", BENIGN_HTML)
+    env.llm(*BENIGN_SCORES)
+    for rid in later:
+        assert env.adjudicate(rid) == V_REJECTED
+    assert env.c.get_queue_state()["pending_ids"] == [stuck]
 
 
-def test_stale_void_needs_a_full_day(env, uni):
-    rid = fail_twice(env, uni)
-    env.advance(DAY - 1)
-    env.rev("ERR_NOT_STALE", env.carol, "void_stale_report", rid)
-    env.advance(1)  # exactly 24h at the head
-    env.tx(env.carol, "void_stale_report", rid)
+# =============================================================================
+# 11. Stale reports
+# =============================================================================
+def test_the_reporter_can_void_after_two_hours(env, uni):
+    rid = env.report(env.bob, uni, "https://slow.xyz/")
+    env.advance(2 * 3600 - 1)
+    env.rev("ERR_NOT_STALE", env.bob, "void_stale_report", rid)
+    env.advance(1)  # exactly two hours
+    env.tx(env.bob, "void_stale_report", rid)
     assert env.c.get_report(rid)["status"] == VOIDED
 
 
-def test_stale_void_needs_repeated_failures(env, uni):
-    env.reset_mocks()
-    env.page(r".*", PHISH_HTML)
-    env.llm_raw(json.dumps("junk"))
-    rid = env.report(env.bob, uni, "https://stuck.xyz/")
-    env.rev("ERR_NOT_STALE", env.carol, "void_stale_report", rid)  # zero failures, zero age
-    assert env.adjudicate(rid) == V_FAIL
-    env.advance(3 * DAY)
-    env.rev("ERR_NOT_STALE", env.carol, "void_stale_report", rid)  # one failure is not "repeated"
-    assert env.adjudicate(rid) == V_FAIL
-    env.tx(env.carol, "void_stale_report", rid)  # two failures and three days
+def test_a_stranger_cannot_void_before_twenty_four_hours(env, uni):
+    rid = env.report(env.bob, uni, "https://slow.xyz/")
+    env.advance(2 * 3600)
+    for who in (env.carol, env.dave, env.alice):
+        env.rev("ERR_UNAUTHORIZED", who, "void_stale_report", rid)
+    env.advance(DAY - 2 * 3600 - 1)
+    env.rev("ERR_UNAUTHORIZED", env.carol, "void_stale_report", rid)
+    env.advance(1)  # exactly 24 hours: now anyone may
+    env.tx(env.carol, "void_stale_report", rid)
+    assert env.c.get_report(rid)["verdict"] == V_STALE
+
+
+def test_the_governor_can_void_after_two_hours(env, uni):
+    rid = env.report(env.bob, uni, "https://slow.xyz/")
+    env.advance(2 * 3600)
+    env.tx(env.governor, "void_stale_report", rid)
+    assert env.c.get_report(rid)["status"] == VOIDED
 
 
 def test_stale_void_refunds_the_whole_bond_with_no_fee(env, uni):
-    rid = fail_twice(env, uni)
-    env.advance(DAY)
-    env.tx(env.carol, "void_stale_report", rid)
+    rid = env.report(env.bob, uni, "https://slow.xyz/")
+    env.advance(2 * 3600)
+    env.tx(env.bob, "void_stale_report", rid)
     r = env.c.get_report(rid)
     assert r["status"] == VOIDED
     assert r["verdict"] == V_STALE
@@ -1036,69 +1048,37 @@ def test_stale_void_refunds_the_whole_bond_with_no_fee(env, uni):
     assert env.withdraw(env.bob) == MIN_BOND
 
 
-def test_stale_void_unblocks_the_queue(env, uni):
-    rid = fail_twice(env, uni)
-    r2 = env.report(env.bob, uni, "https://next.xyz/")
-    env.rev("ERR_NOT_QUEUE_HEAD", env.dave, "adjudicate_report", r2)
-    env.advance(DAY)
-    env.tx(env.carol, "void_stale_report", rid)
-    env.phish_world()
-    assert env.adjudicate(r2) == V_CONFIRMED
+def test_each_report_has_its_own_stale_clock(env, uni):
+    r1 = env.report(env.bob, uni, "https://one.xyz/")
+    env.advance(2 * 3600)
+    r2 = env.report(env.bob, uni, "https://two.xyz/")
+    env.rev("ERR_NOT_STALE", env.bob, "void_stale_report", r2)  # filed just now
+    env.tx(env.bob, "void_stale_report", r1)
+    assert env.c.get_report(r2)["status"] == PENDING
+    assert env.c.get_queue_state()["pending_ids"] == [r2]
+
+
+def test_a_report_that_failed_rounds_is_rescuable(env, uni):
+    env.reset_mocks()
+    env.page(r".*", PHISH_HTML)
+    env.llm_raw(json.dumps("junk"))
+    rid = env.report(env.bob, uni, "https://stuck.xyz/")
+    assert env.adjudicate(rid) == V_FAIL
+    assert env.adjudicate(rid) == V_FAIL
+    env.advance(2 * 3600)
+    env.tx(env.bob, "void_stale_report", rid)
+    assert env.c.get_report(rid)["exec_failures"] == 2
     assert env.c.get_queue_state()["pending_count"] == 0
 
 
-def test_hard_stale_backstop_voids_without_recorded_failures(env, uni):
-    env.reset_mocks()
-    rid = env.report(env.bob, uni, "https://deadlocked.xyz/")
-    env.advance(7 * DAY - 1)
-    env.rev("ERR_NOT_STALE", env.carol, "void_stale_report", rid)
-    env.advance(1)
-    env.tx(env.carol, "void_stale_report", rid)
-    assert env.c.get_report(rid)["verdict"] == V_STALE
-    assert env.ov()["total_claimable"] == MIN_BOND
-
-
-def test_only_the_head_can_be_voided(env, uni):
-    r1 = env.report(env.bob, uni, "https://one.xyz/")
-    r2 = env.report(env.bob, uni, "https://two.xyz/")
-    env.advance(30 * DAY)
-    env.rev("ERR_NOT_QUEUE_HEAD", env.carol, "void_stale_report", r2)
-    env.tx(env.carol, "void_stale_report", r1)
-    # r2 only became head just now, so its own clock starts fresh
-    env.rev("ERR_NOT_STALE", env.carol, "void_stale_report", r2)
-    env.advance(7 * DAY)
-    env.tx(env.carol, "void_stale_report", r2)
-
-
-def test_head_clock_restarts_when_a_report_reaches_the_head(env, uni):
-    env.benign_world()
-    r1 = env.report(env.bob, uni, "https://one.xyz/")
-    env.reset_mocks()
-    env.page(r".*", PHISH_HTML)
-    env.llm_raw(json.dumps("junk"))
-    r2 = env.report(env.bob, uni, "https://two.xyz/")
-    env.advance(30 * DAY)
-    env.benign_world()
-    env.adjudicate(r1)
-    assert env.c.get_queue_state()["head_since"] == env.now()
-    env.reset_mocks()
-    env.page(r".*", PHISH_HTML)
-    env.llm_raw(json.dumps("junk"))
-    env.adjudicate(r2)
-    env.adjudicate(r2)
-    env.rev("ERR_NOT_STALE", env.carol, "void_stale_report", r2)  # created 30 days ago, head for 0s
-    env.advance(DAY)
-    env.tx(env.carol, "void_stale_report", r2)
-
-
 def test_voiding_clears_the_duplicate_and_freeze_guards(env, uni):
-    rid = fail_twice(env, uni, "https://stuck.xyz/")
+    rid = env.report(env.bob, uni, "https://stuck.xyz/")
     env.rev("ERR_DUPLICATE_REPORT", env.carol, "report_phishing", uni, "https://stuck.xyz/", value=MIN_BOND)
     env.rev("ERR_CHALLENGE_IN_PROGRESS", env.alice, "fund_bounty", uni, value=1)
-    env.advance(DAY)
-    env.tx(env.carol, "void_stale_report", rid)
-    env.report(env.carol, uni, "https://stuck.xyz/")
-    assert env.c.get_queue_state()["pending_ids"] == [2]
+    env.advance(2 * 3600)
+    env.tx(env.bob, "void_stale_report", rid)
+    env.tx(env.alice, "fund_bounty", uni, value=1)  # unfrozen again
+    assert env.report(env.carol, uni, "https://stuck.xyz/") == 2
 
 
 # =============================================================================
@@ -1262,12 +1242,12 @@ def test_validator_agrees_on_a_void(env, uni):
     assert env.vm.run_validator() is True
 
 
-def test_validator_agrees_when_scores_differ_but_the_verdict_matches(env, uni):
+def test_validator_agrees_when_scores_differ_within_tolerance(env, uni):
     env.phish_world()
     env.adjudicate(env.report(env.bob, uni, "https://uniswap-app.xyz/"))
     env.reset_mocks()
     env.page(r".*", PHISH_HTML)
-    env.llm(60, 72, 55, "A different but equivalent opinion.")
+    env.llm(70, 75, 80, "A different but equivalent opinion.")
     assert env.vm.run_validator() is True
 
 
@@ -1404,9 +1384,26 @@ def test_interleaved_adjudication_and_withdrawal(env, uni):
 def test_randomized_ledger_conservation(env):
     rng = random.Random(20261004)
     users = [env.alice, env.bob, env.carol, env.dave]
-    brands, hosts, ok_counts = [], 0, {}
-    for step in range(200):
-        action = rng.choice(["reg", "fund", "report", "report", "adj", "adj", "adj", "void", "wd", "sweep", "deact", "adv"])
+    brands, owners, blacklisted, hosts, ok_counts = [], {}, [], 0, {}
+
+    def world(mode):
+        env.reset_mocks()
+        if mode == "phish":
+            env.page(r".*", PHISH_HTML); env.llm(*PHISH_SCORES)
+        elif mode == "benign":
+            env.page(r".*", BENIGN_HTML); env.llm(*BENIGN_SCORES)
+        elif mode == "void":
+            env.page(r".*", "", status=404)
+        else:
+            env.page(r".*", PHISH_HTML); env.llm_raw(json.dumps("junk"))
+
+    def pay_out(amount):
+        env.balance -= amount
+        env.paid_out += amount
+
+    for step in range(260):
+        action = rng.choice(["reg", "fund", "report", "report", "adj", "adj", "adj", "void", "wd", "sweep",
+                             "deact", "adv", "appeal", "unbl"])
         who = rng.choice(users)
         ok = False
         if action == "reg":
@@ -1414,70 +1411,70 @@ def test_randomized_ledger_conservation(env):
                                  value=SEED + rng.randrange(0, 12 * ATTO))
             if ok:
                 brands.append(bid)
+                owners[bid] = who
+                if rng.random() < 0.85:
+                    env.try_tx(env.governor, "verify_brand", bid)
         elif action == "fund" and brands:
-            ok, _ = env.try_tx(who, "fund_bounty", rng.choice(brands), value=rng.randrange(1, 3 * ATTO))
+            bid = rng.choice(brands)
+            payer = owners[bid] if rng.random() < 0.8 else who
+            ok, _ = env.try_tx(payer, "fund_bounty", bid, value=rng.randrange(1, 3 * ATTO))
         elif action == "report" and brands:
             hosts += 1
             bid = rng.choice(brands)
             ok, _ = env.try_tx(who, "report_phishing", bid, f"https://scam{hosts}.xyz/",
                                value=env.bond(bid) + rng.choice([0, 0, 7]))
         elif action == "adj":
-            head = env.c.get_queue_state()["head_report_id"]
-            if head:
-                mode = rng.choice(["phish", "benign", "void", "fail"])
-                env.reset_mocks()
-                if mode == "phish":
-                    env.page(r".*", PHISH_HTML); env.llm(*PHISH_SCORES)
-                elif mode == "benign":
-                    env.page(r".*", BENIGN_HTML); env.llm(*BENIGN_SCORES)
-                elif mode == "void":
-                    env.page(r".*", "", status=404)
-                else:
-                    env.page(r".*", PHISH_HTML); env.llm_raw(json.dumps("junk"))
-                ok, _ = env.try_tx(who, "adjudicate_report", head)
+            pending = env.c.get_queue_state()["pending_ids"]
+            if pending:
+                world(rng.choice(["phish", "benign", "void", "fail"]))
+                rid = rng.choice(pending)
+                ok, _ = env.try_tx(who, "adjudicate_report", rid)
+                rec = env.c.get_report(rid)
+                if ok and rec["status"] == CONFIRMED:
+                    blacklisted.append(rec["canonical_host"])
         elif action == "void":
-            head = env.c.get_queue_state()["head_report_id"]
-            if head:
-                ok, _ = env.try_tx(who, "void_stale_report", head)
+            pending = env.c.get_queue_state()["pending_ids"]
+            if pending:
+                rid = rng.choice(pending)
+                ok, _ = env.try_tx(who, "void_stale_report", rid)
+        elif action == "appeal" and blacklisted:
+            world(rng.choice(["phish", "benign", "void", "fail"]))
+            ok, _ = env.try_tx(who, "appeal_blacklist", rng.choice(blacklisted), value=APPEAL_BOND + rng.choice([0, 0, 5]))
+        elif action == "unbl" and blacklisted:
+            ok, _ = env.try_tx(env.governor, "unblacklist_host", rng.choice(blacklisted))
         elif action == "wd":
             ok, amount = env.try_tx(who, "pull_withdraw")
             if ok:
-                env.balance -= amount
-                env.paid_out += amount
+                pay_out(amount)
         elif action == "sweep":
             ok, amount = env.try_tx(env.governor, "sweep_vault")
             if ok:
-                env.balance -= amount
-                env.paid_out += amount
+                pay_out(amount)
         elif action == "deact" and brands:
             ok, _ = env.try_tx(who, "deactivate_brand", rng.choice(brands))
         elif action == "adv":
-            env.advance(rng.choice([3600, DAY, 8 * DAY]))
+            env.advance(rng.choice([3600, 2 * 3600, DAY, 8 * DAY]))
         ok_counts[action] = ok_counts.get(action, 0) + (1 if ok else 0)
         env.assert_solvent()
 
     # the walk must have exercised every settlement path, not just the easy ones
     assert ok_counts["reg"] > 3 and ok_counts["report"] > 10 and ok_counts["adj"] > 10
-    assert ok_counts["wd"] > 0 and ok_counts["void"] > 0
+    assert ok_counts["wd"] > 0 and ok_counts["void"] > 0 and ok_counts["appeal"] > 0
 
-    # drain: every pending report resolves or voids, every credit is withdrawn
-    env.advance(8 * DAY)
-    while env.c.get_queue_state()["head_report_id"]:
-        head = env.c.get_queue_state()["head_report_id"]
-        env.reset_mocks()
-        env.page(r".*", BENIGN_HTML); env.llm(*BENIGN_SCORES)
-        ok, _ = env.try_tx(env.dave, "adjudicate_report", head)
+    # drain: every pending report resolves, every credit is withdrawn
+    while env.c.get_queue_state()["pending_ids"]:
+        rid = env.c.get_queue_state()["pending_ids"][0]
+        world("benign")
+        ok, _ = env.try_tx(env.dave, "adjudicate_report", rid)
         assert ok
         env.assert_solvent()
     for who in users:
         ok, amount = env.try_tx(who, "pull_withdraw")
         if ok:
-            env.balance -= amount
-            env.paid_out += amount
+            pay_out(amount)
     ok, amount = env.try_tx(env.governor, "sweep_vault")
     if ok:
-        env.balance -= amount
-        env.paid_out += amount
+        pay_out(amount)
     env.assert_solvent()
     o = env.ov()
     assert o["total_locked_bonds"] == 0
@@ -1488,7 +1485,341 @@ def test_randomized_ledger_conservation(env):
 
 
 # =============================================================================
-# 16. Toolchain
+# 16. Verified brands (anti-squatting)
+# =============================================================================
+def test_new_brands_start_unverified_and_cannot_be_reported(env):
+    bid = env.register(env.alice, "Uniswap", ["uniswap.org"], verify=False)
+    assert env.c.get_brand(bid)["is_verified"] is False
+    env.rev("ERR_BRAND_UNVERIFIED", env.bob, "report_phishing", bid, "https://scam.xyz/", value=MIN_BOND)
+    assert env.ov()["pending_count"] == 0
+
+
+def test_only_the_governor_can_verify_or_unverify(env):
+    bid = env.register(env.alice, "Uniswap", ["uniswap.org"], verify=False)
+    for who in (env.alice, env.bob, env.carol, env.dave):
+        env.rev("ERR_UNAUTHORIZED", who, "verify_brand", bid)
+        env.rev("ERR_UNAUTHORIZED", who, "unverify_brand", bid)
+    assert env.c.get_brand(bid)["is_verified"] is False
+
+
+def test_verification_unlocks_reporting_and_can_be_revoked(env):
+    bid = env.register(env.alice, "Uniswap", ["uniswap.org"], verify=False)
+    env.tx(env.governor, "verify_brand", bid)
+    assert env.c.get_brand(bid)["is_verified"] is True
+    assert env.report(env.bob, bid, "https://scam.xyz/") == 1
+    env.tx(env.governor, "unverify_brand", bid)
+    assert env.c.get_brand(bid)["is_verified"] is False
+    env.rev("ERR_BRAND_UNVERIFIED", env.carol, "report_phishing", bid, "https://other.xyz/", value=MIN_BOND)
+
+
+def test_verifying_an_unknown_brand_reverts(env):
+    env.rev("ERR_UNKNOWN_BRAND", env.governor, "verify_brand", 9)
+    env.rev("ERR_UNKNOWN_BRAND", env.governor, "unverify_brand", 9)
+
+
+def test_a_brand_the_governor_registers_is_verified_at_once(env):
+    bid = env.tx(env.governor, "register_brand", "Governor Brand", ["gov-brand.org"], value=SEED)
+    assert env.c.get_brand(bid)["is_verified"] is True
+
+
+def test_a_squatter_cannot_weaponise_the_oracle_against_a_legitimate_dapp(env):
+    # The squatter claims a famous name with their own domains and tries to use
+    # the oracle to blacklist the real dApp. The brand is never verified.
+    squat = env.register(env.bob, "Aave", ["aave-official.xyz"], verify=False)
+    env.rev("ERR_BRAND_UNVERIFIED", env.bob, "report_phishing", squat, "https://app.aave.com/", value=MIN_BOND)
+    assert env.c.is_phishing("app.aave.com") is False
+    assert env.ov()["pending_count"] == 0
+
+
+def test_governor_deactivation_frees_a_squatted_name_for_the_real_owner(env):
+    squat = env.register(env.bob, "Aave", ["aave.com"], verify=False)
+    env.rev("ERR_BRAND_EXISTS", env.carol, "register_brand", "Aave", ["aave.com"], value=SEED)
+    env.tx(env.governor, "deactivate_brand", squat)
+    real = env.register(env.carol, "Aave", ["aave.com"])
+    assert env.c.get_brand(real)["is_verified"] is True
+    assert env.withdraw(env.bob) == SEED  # the squatter only ever gets their own seed back
+
+
+# =============================================================================
+# 17. Official-domain protection is scoped to the targeted brand
+# =============================================================================
+def test_official_check_is_brand_scoped_not_global(env, uni_meta):
+    uni, mm = uni_meta
+    # metamask.io is MetaMask's official domain, but it is not Uniswap's: a report
+    # against Uniswap is accepted and goes to adjudication.
+    rid = env.report(env.bob, uni, "https://metamask.io/")
+    assert env.c.get_report(rid)["canonical_host"] == "metamask.io"
+    # The same host reported against its own brand is refused.
+    env.rev("ERR_OFFICIAL_DOMAIN", env.bob, "report_phishing", mm, "https://metamask.io/", value=MIN_BOND)
+
+
+def test_a_wrongly_targeted_official_domain_is_decided_by_validators_not_the_registry(env, uni_meta):
+    uni, mm = uni_meta
+    env.benign_world()
+    rid = env.report(env.bob, uni, "https://metamask.io/")
+    assert env.adjudicate(rid) == V_REJECTED  # the reporter pays for the mistake
+    assert env.c.is_phishing("metamask.io") is False
+    assert env.c.get_brand(uni)["bounty_pool"] == SEED + MIN_BOND // 2
+
+
+def test_a_squatters_claimed_domain_does_not_shield_it_from_a_verified_brand(env):
+    verified = env.register(env.alice, "Uniswap", ["uniswap.org"])
+    env.register(env.bob, "Evil", ["uniswap-claim.xyz"], verify=False)  # claims a lookalike as "official"
+    rid = env.report(env.carol, verified, "https://uniswap-claim.xyz/")
+    env.phish_world()
+    assert env.adjudicate(rid) == V_CONFIRMED
+    assert env.c.is_phishing("uniswap-claim.xyz") is True
+
+
+# =============================================================================
+# 18. Only the owner (or governor) can fund a pool
+# =============================================================================
+def test_non_owners_cannot_fund_a_brand(env, uni):
+    for who in (env.bob, env.carol, env.dave):
+        env.rev("ERR_NOT_BRAND_OWNER", who, "fund_bounty", uni, value=ATTO)
+    assert env.c.get_brand(uni)["bounty_pool"] == SEED
+    assert env.ov()["balance"] == SEED
+
+
+def test_deactivation_returns_only_the_owners_own_money(env, uni):
+    env.tx(env.alice, "fund_bounty", uni, value=ATTO)
+    env.rev("ERR_NOT_BRAND_OWNER", env.bob, "fund_bounty", uni, value=5 * ATTO)  # a stranger cannot donate
+    env.tx(env.alice, "deactivate_brand", uni)
+    assert env.withdraw(env.alice) == SEED + ATTO
+    assert env.ov()["total_claimable"] == 0
+
+
+def test_the_pool_also_holds_slashed_bonds_which_deactivation_returns_to_the_owner(env, uni):
+    # By design the brand is compensated with half of every false-positive bond.
+    env.benign_world()
+    env.adjudicate(env.report(env.bob, uni, "https://docs.python.org/"))
+    env.tx(env.alice, "deactivate_brand", uni)
+    assert env.withdraw(env.alice) == SEED + MIN_BOND // 2
+
+
+def test_the_owner_check_applies_before_the_value_check(env, uni):
+    env.rev("ERR_NOT_BRAND_OWNER", env.bob, "fund_bounty", uni, value=0)
+    env.rev("ERR_ZERO_VALUE", env.alice, "fund_bounty", uni, value=0)
+
+
+# =============================================================================
+# 19. Blacklist appeals and governor review
+# =============================================================================
+HOST = "uniswap-app.xyz"
+
+
+def blacklisted(env, uni):
+    rid = confirm(env, uni, f"https://{HOST}/claim")
+    assert env.c.is_phishing(HOST) is True
+    return rid
+
+
+def test_a_successful_appeal_removes_the_entry_and_refunds_the_bond(env, uni):
+    rid = blacklisted(env, uni)
+    env.benign_world()  # the page is clean now
+    out = env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
+    assert out == "BLACKLIST_REMOVED"
+    assert env.c.is_phishing(HOST) is False
+    assert env.c.get_report(rid)["overturned"] is True
+    assert env.c.get_report(rid)["status"] == CONFIRMED  # history is not rewritten
+    env.vm.sender = env.carol
+    assert env.c.claimable_of(env.c.whoami()) == APPEAL_BOND
+
+
+def test_an_overturned_host_can_be_reported_again(env, uni):
+    blacklisted(env, uni)
+    env.benign_world()
+    env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
+    assert env.report(env.bob, uni, f"https://{HOST}/again") == 2
+
+
+def test_a_denied_appeal_slashes_the_bond_fifty_fifty(env, uni):
+    blacklisted(env, uni)
+    pool_before = env.c.get_brand(uni)["bounty_pool"]
+    vault_before = env.ov()["protocol_vault"]
+    env.phish_world()  # still malicious
+    out = env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
+    assert out == "APPEAL_DENIED"
+    assert env.c.is_phishing(HOST) is True
+    assert env.c.get_brand(uni)["bounty_pool"] - pool_before == APPEAL_BOND // 2
+    assert env.ov()["protocol_vault"] - vault_before == APPEAL_BOND - APPEAL_BOND // 2
+    env.vm.sender = env.carol
+    assert env.c.claimable_of(env.c.whoami()) == 0
+    assert env.c.get_report(1)["overturned"] is False
+
+
+def test_an_unreachable_page_makes_the_appeal_inconclusive(env, uni):
+    blacklisted(env, uni)
+    vault_before = env.ov()["protocol_vault"]
+    void_world(env)
+    out = env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND)
+    assert out == "APPEAL_INCONCLUSIVE"
+    assert env.c.is_phishing(HOST) is True  # a takedown does not clear the entry
+    fee = APPEAL_BOND * 20 // 100
+    assert env.ov()["protocol_vault"] - vault_before == fee
+    env.vm.sender = env.carol
+    assert env.c.claimable_of(env.c.whoami()) == APPEAL_BOND - fee
+
+
+def test_a_model_failure_changes_nothing_and_refunds_the_appeal_bond(env, uni):
+    blacklisted(env, uni)
+    env.reset_mocks()
+    env.page(r".*", PHISH_HTML)
+    env.llm_raw(json.dumps("junk"))
+    assert env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND) == V_FAIL
+    assert env.c.is_phishing(HOST) is True
+    env.vm.sender = env.carol
+    assert env.c.claimable_of(env.c.whoami()) == APPEAL_BOND
+
+
+def test_an_appeal_overpayment_is_credited_back(env, uni):
+    blacklisted(env, uni)
+    env.phish_world()
+    env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND + 9)
+    env.vm.sender = env.carol
+    assert env.c.claimable_of(env.c.whoami()) == 9
+
+
+def test_appeal_preconditions(env, uni):
+    blacklisted(env, uni)
+    env.phish_world()
+    env.rev("ERR_INSUFFICIENT_BOND", env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND - 1)
+    env.rev("ERR_NOT_BLACKLISTED", env.carol, "appeal_blacklist", "never-reported.xyz", value=APPEAL_BOND)
+    env.rev("ERR_NOT_BLACKLISTED", env.carol, "appeal_blacklist", "login." + HOST, value=APPEAL_BOND)  # covered, not listed
+    env.rev("ERR_BAD_SCHEME", env.carol, "appeal_blacklist", "http://" + HOST, value=APPEAL_BOND)
+
+
+def test_a_denied_appeal_against_a_retired_brand_goes_entirely_to_the_vault(env, uni):
+    blacklisted(env, uni)
+    env.tx(env.alice, "deactivate_brand", uni)
+    vault_before = env.ov()["protocol_vault"]
+    env.phish_world()
+    assert env.tx(env.carol, "appeal_blacklist", HOST, value=APPEAL_BOND) == "APPEAL_DENIED"
+    assert env.ov()["protocol_vault"] - vault_before == APPEAL_BOND
+    assert env.c.get_brand(uni)["bounty_pool"] == 0
+
+
+def test_the_governor_can_unblacklist_directly(env, uni):
+    rid = blacklisted(env, uni)
+    credit = env.c.claimable_of(env.c.get_report(rid)["reporter"])
+    env.tx(env.governor, "unblacklist_host", "https://www." + HOST + "/x")
+    assert env.c.is_phishing(HOST) is False
+    assert env.c.get_report(rid)["overturned"] is True
+    assert env.c.claimable_of(env.c.get_report(rid)["reporter"]) == credit  # the reward is not clawed back
+
+
+def test_only_the_governor_can_unblacklist_and_only_listed_hosts(env, uni):
+    blacklisted(env, uni)
+    for who in (env.alice, env.bob, env.carol):
+        env.rev("ERR_UNAUTHORIZED", who, "unblacklist_host", HOST)
+    env.rev("ERR_NOT_BLACKLISTED", env.governor, "unblacklist_host", "never-reported.xyz")
+    env.tx(env.governor, "unblacklist_host", HOST)
+    env.rev("ERR_NOT_BLACKLISTED", env.governor, "unblacklist_host", HOST)
+
+
+def test_unblacklisting_a_parent_frees_its_subdomains(env, uni):
+    blacklisted(env, uni)
+    assert env.c.is_phishing("login." + HOST) is True
+    env.tx(env.governor, "unblacklist_host", HOST)
+    assert env.c.is_phishing("login." + HOST) is False
+
+
+# =============================================================================
+# 20. Validator equivalence binds the leader's scores
+# =============================================================================
+def leader_result(lex, imp, mal, verdict=V_CONFIRMED, reasoning="Leader's reasoning."):
+    return {"verdict": verdict, "reasoning": reasoning, "lexical": lex, "impersonation": imp, "malicious": mal}
+
+
+def adjudicated_phish(env, uni):
+    env.phish_world()  # this validator measures 80 / 85 / 90
+    env.adjudicate(env.report(env.bob, uni, "https://uniswap-app.xyz/"))
+
+
+def test_scores_within_the_tolerance_are_accepted(env, uni):
+    adjudicated_phish(env, uni)
+    assert env.vm.run_validator(leader_result=leader_result(55, 60, 65)) is True   # gaps 25, 25, 25
+    assert env.vm.run_validator(leader_result=leader_result(100, 100, 100)) is True  # gaps 20, 15, 10
+
+
+def test_each_dimension_is_bounded_on_its_own(env, uni):
+    adjudicated_phish(env, uni)
+    assert env.vm.run_validator(leader_result=leader_result(54, 85, 90)) is False  # lexical off by 26
+    assert env.vm.run_validator(leader_result=leader_result(80, 59, 90)) is False  # impersonation off by 26
+    assert env.vm.run_validator(leader_result=leader_result(80, 85, 64)) is False  # malicious off by 26
+    assert env.vm.run_validator(leader_result=leader_result(55, 85, 90)) is True   # exactly on the edge
+
+
+def test_a_rogue_leader_cannot_attach_fabricated_scores_to_the_right_verdict(env, uni):
+    adjudicated_phish(env, uni)
+    # Same CONFIRMED verdict, internally consistent, but the lexical score is invented.
+    assert env.vm.run_validator(leader_result=leader_result(0, 100, 100)) is False
+
+
+def test_leader_scores_must_be_plain_integers_in_range(env, uni):
+    adjudicated_phish(env, uni)
+    for bad in (leader_result(80.0, 85, 90), leader_result(True, 85, 90), leader_result(-1, 85, 90),
+                leader_result(80, 101, 90), leader_result("80", 85, 90), leader_result(None, 85, 90)):
+        assert env.vm.run_validator(leader_result=bad) is False
+    missing = leader_result(80, 85, 90)
+    del missing["malicious"]
+    assert env.vm.run_validator(leader_result=missing) is False
+
+
+def test_leader_reasoning_must_be_bounded_and_markup_free(env, uni):
+    adjudicated_phish(env, uni)
+    assert env.vm.run_validator(leader_result=leader_result(80, 85, 90, reasoning="x" * 600)) is True
+    for bad in ("x" * 601, "<script>alert(1)</script>", "a > b", 7, None):
+        assert env.vm.run_validator(leader_result=leader_result(80, 85, 90, reasoning=bad)) is False
+
+
+def test_a_rejection_is_bound_to_the_scores_too(env, uni):
+    env.benign_world()  # 2 / 3 / 0
+    env.adjudicate(env.report(env.bob, uni, "https://docs.python.org/"))
+    assert env.vm.run_validator(leader_result=leader_result(2, 3, 0, V_REJECTED)) is True
+    assert env.vm.run_validator(leader_result=leader_result(30, 3, 0, V_REJECTED)) is False  # gap 28
+
+
+def test_voids_and_failures_carry_no_scores_to_check(env, uni):
+    void_world(env)
+    env.adjudicate(env.report(env.bob, uni, "https://gone.xyz/"))
+    assert env.vm.run_validator(leader_result={"verdict": V_VOID, "reasoning": "x", "lexical": 0,
+                                               "impersonation": 0, "malicious": 0}) is True
+
+
+# =============================================================================
+# 20b. The overview's pending counter follows every way a report can end
+# =============================================================================
+def test_overview_pending_count_tracks_every_terminal_state(env, uni):
+    assert env.ov()["pending_count"] == 0
+    ids = [env.report(env.bob, uni, f"https://scam{i}.xyz/") for i in range(4)]
+    assert env.ov()["pending_count"] == 4
+    env.phish_world()
+    env.adjudicate(ids[0])  # confirmed
+    assert env.ov()["pending_count"] == 3
+    env.benign_world()
+    env.adjudicate(ids[1])  # rejected
+    assert env.ov()["pending_count"] == 2
+    void_world(env)
+    env.adjudicate(ids[2])  # voided by the validators
+    assert env.ov()["pending_count"] == 1
+    env.advance(2 * 3600)
+    env.tx(env.bob, "void_stale_report", ids[3])  # voided as stale
+    assert env.ov()["pending_count"] == 0
+    assert env.ov()["pending_count"] == env.c.get_queue_state()["pending_count"]
+
+
+def test_a_failed_round_leaves_the_pending_count_alone(env, uni):
+    env.reset_mocks()
+    env.page(r".*", PHISH_HTML)
+    env.llm_raw(json.dumps("junk"))
+    rid = env.report(env.bob, uni, "https://scam.xyz/")
+    assert env.adjudicate(rid) == V_FAIL
+    assert env.ov()["pending_count"] == 1
+
+
+# =============================================================================
+# 21. Toolchain
 # =============================================================================
 def test_genvm_lint_reports_zero_errors():
     exe = Path(sys.executable).parent / "genvm-lint"

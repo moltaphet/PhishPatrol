@@ -31,6 +31,7 @@ CONTRACT = "contracts/phish_patrol.py"
 ATTO = 10**18
 SEED = ATTO // 2  # minimum brand seed, 0.5 GEN
 MIN_BOND = ATTO // 10  # 0.1 GEN
+APPEAL_BOND = ATTO // 2  # 0.5 GEN
 
 # Terminal report statuses.
 PENDING, CONFIRMED, REJECTED, VOIDED = 0, 1, 2, 3
@@ -144,8 +145,13 @@ class Env:
         return True, out
 
     # --------------------------------------------------------------- actions
-    def register(self, who, name, domains, value=SEED):
-        return self.tx(who, "register_brand", name, domains, value=value)
+    def register(self, who, name, domains, value=SEED, verify=True):
+        """Registers a brand and, by default, has the governor verify it, since
+        only verified brands can be reported against."""
+        bid = self.tx(who, "register_brand", name, domains, value=value)
+        if verify:
+            self.tx(self.governor, "verify_brand", bid)
+        return bid
 
     def bond(self, brand_id):
         return self.c.required_bond(brand_id)

@@ -52,6 +52,8 @@ export async function getBrand(id: number): Promise<Brand> {
     domains: (b.canonical_domains as string[]) ?? [],
     pool: big(b.bounty_pool),
     active: Boolean(b.is_active),
+    verified: Boolean(b.is_verified),
+    owner: String(b.owner ?? ""),
     pending: num(b.pending_reports),
   };
 }

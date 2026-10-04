@@ -13,6 +13,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import stat
 import time
 from pathlib import Path
@@ -136,11 +137,11 @@ class Chain:
         return have
 
     # -- fees
-    def _fees(self, method: str | None, args: list, value: int) -> dict:
+    def _fees(self, method: str | None, args: list, value: int, simulate: bool = True) -> dict:
         """Simulation-based estimate for a write when possible, else the SDK's
         policy-derived estimate (a failed simulation says nothing about the real
         transaction, which carries a real block clock)."""
-        if method is not None and self.address:
+        if simulate and method is not None and self.address:
             try:
                 est = _retry(
                     lambda: self.client.estimate_transaction_fees_for_write(
@@ -169,10 +170,11 @@ class Chain:
         tx = _retry(lambda: cast(dict, self.client.get_transaction(tx_hash)))
         return {"receipt": receipt, "tx": tx, "tx_hash": _tx_hash_hex(tx_hash)}
 
-    def write(self, method: str, *args, value: int = 0, label: str = "", allow_exec_failure: bool = False) -> dict:
+    def write(self, method: str, *args, value: int = 0, label: str = "", allow_exec_failure: bool = False,
+              simulate: bool = True) -> dict:
         """Submit a write and block until consensus decides it. Submissions are
         never retried: a duplicate would double-spend a bond."""
-        fees = self._fees(method, list(args), value)
+        fees = self._fees(method, list(args), value, simulate)
         tx_hash = _retry(
             lambda: self.client.write_contract(self.address, method, args=list(args), value=value, fees=fees),
             attempts=1,
@@ -277,7 +279,9 @@ def decoded_return(tx: dict) -> str | None:
                 except Exception:  # noqa: BLE001
                     value = None
         if value:
-            return value.lstrip("|").strip("\x00-\x1f ")
+            # A return payload carries binary framing before the text; keep the token.
+            m = re.search(r"[A-Za-z_][A-Za-z0-9_ ]*$", value.strip())
+            return m.group(0).strip() if m else value.strip()
     return None
 
 

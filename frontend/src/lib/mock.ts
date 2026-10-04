@@ -6,10 +6,10 @@ import type { Brand, Report, Snapshot } from "./types";
 const now = Math.floor(Date.now() / 1000);
 
 export const MOCK_BRANDS: Brand[] = [
-  { id: 1, name: "Uniswap", domains: ["uniswap.org", "app.uniswap.org"], pool: (ATTO * BigInt(42)) / BigInt(10), active: true, pending: 0 },
-  { id: 2, name: "MetaMask", domains: ["metamask.io"], pool: (ATTO * BigInt(31)) / BigInt(10), active: true, pending: 1 },
-  { id: 3, name: "Lido", domains: ["lido.fi", "stake.lido.fi"], pool: ATTO * BigInt(12), active: true, pending: 0 },
-  { id: 4, name: "Aave", domains: ["aave.com", "app.aave.com"], pool: (ATTO * BigInt(85)) / BigInt(10), active: true, pending: 0 },
+  { id: 1, name: "Uniswap", domains: ["uniswap.org", "app.uniswap.org"], pool: (ATTO * BigInt(42)) / BigInt(10), active: true, verified: true, owner: "0x0000000000000000000000000000000000000001", pending: 0 },
+  { id: 2, name: "MetaMask", domains: ["metamask.io"], pool: (ATTO * BigInt(31)) / BigInt(10), active: true, verified: true, owner: "0x0000000000000000000000000000000000000001", pending: 1 },
+  { id: 3, name: "Lido", domains: ["lido.fi", "stake.lido.fi"], pool: ATTO * BigInt(12), active: true, verified: true, owner: "0x0000000000000000000000000000000000000001", pending: 0 },
+  { id: 4, name: "Aave", domains: ["aave.com", "app.aave.com"], pool: (ATTO * BigInt(85)) / BigInt(10), active: true, verified: true, owner: "0x0000000000000000000000000000000000000001", pending: 0 },
 ];
 
 export const MOCK_REPORTS: Report[] = [

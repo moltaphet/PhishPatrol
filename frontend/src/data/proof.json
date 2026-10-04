@@ -1,45 +1,71 @@
 {
-  "instance": "0x632B117d0096277a4aA132bCa909d11841a5A225",
+  "instance": "0x2f74318e2E0FA48B1665007Cc3210d6b3a141f9e",
   "chainId": 61997,
-  "deployTx": "0xd52a4e014b60aab21caaa6897f69e7281b27d1325aa076f3a895e58243241d29",
+  "deployTx": "0x693208fa04eefe1c1000f85fef90c7d8c57125ca1f422249c1369ef99d64a63b",
   "reports": {
     "1": {
       "case": 3,
-      "reportTx": "0xc2df210d4cd0db6034a74626468628b2321bb3a86cf5818fc0e2ae36fa4ca6c9",
-      "adjudicationTx": "0x9c356ceaf2ba84f4970c15ccf2cd1b15b543231a01e97350b187d9cf2a8dca34",
+      "reportTx": "0x0f4ce2b15ed5fb9722367b99922e2572afe6f4ae05df1834a6530e127ab77664",
+      "adjudicationTx": "0x4222babe3f47e6c40644f0f76998e05ae2e438bf08c616a769a07a58330a6d38",
       "consensus": "MAJORITY_AGREE",
       "execution": "FINISHED_WITH_RETURN",
       "votes": {
-        "AGREE": 3,
-        "IDLE": 2
+        "IDLE": 2,
+        "AGREE": 3
       },
-      "stateHash": "529e0cb9935f8a4b3fab53b32e8dfe79eeba2564a8636b70fa79cf51ff45923a",
+      "stateHash": "015ed6fe58d5a0cf511148bf75c8b8b4a4f25bf4637f774b4aadcfc6c1744a4a",
       "stateHashesIdentical": true
     },
     "2": {
       "case": 4,
-      "reportTx": "0xa5c89fbd5d5f9a5bd3c5354a35290fabf1ee7d92f3ffe2e30b87dd7de9194c9c",
-      "adjudicationTx": "0xe8c51595a4cab10860324b37821cbfc04408b7481acd622be142094d78c305cf",
+      "reportTx": "0x81b0ed28ce73df0d88fc3d5b3ba8b848c073693a0cd419cb36999e27d04fc289",
+      "adjudicationTx": "0xc47270da57d160e5be38d30d4f0ceff0f58b3c21e6bf0328519b399495e8928e",
       "consensus": "MAJORITY_AGREE",
       "execution": "FINISHED_WITH_RETURN",
       "votes": {
-        "AGREE": 3,
-        "IDLE": 2
+        "IDLE": 2,
+        "AGREE": 3
       },
-      "stateHash": "841acf3d4768da28c90bda71c7cf82f7486f7d5aded22143b26b29d844a799dc",
+      "stateHash": "05028feedf4bb32d5dce174d46637232f28d5c962949480dbb0c7b701f5aaadc",
       "stateHashesIdentical": true
     },
     "3": {
       "case": 5,
-      "reportTx": "0xe98ffecaafeceeec3a907b94d2422e402036198a99836787240263689e13b0b5",
-      "adjudicationTx": "0xcbc7d841b6d129276ee014da7c56b1fe85d9c844a7481929871cc1f2512f5eb1",
+      "reportTx": "0xec03e20c6f01ac0329194a1921a1d585b319bb8a99932b405e043c2dffb4e15e",
+      "adjudicationTx": "0xc9ee9ed528b52c5e0dc5db6c19903f42d97fe465dd7a1ca044085f6246cd5275",
       "consensus": "MAJORITY_AGREE",
       "execution": "FINISHED_WITH_RETURN",
       "votes": {
         "AGREE": 3,
         "IDLE": 2
       },
-      "stateHash": "80254340a98aacfdeb00e6c71ad882cb3967f09ce93e7dad1fc6ca8943f58db6",
+      "stateHash": "64d9e4e36362fb1d506fab64d7110f10633e4543bee4960d289b12bfb1b16152",
+      "stateHashesIdentical": true
+    },
+    "4": {
+      "case": 8,
+      "reportTx": "0x6cc8c48a2032e10200ff76e2e59c02bff2b8746f136863128ce065cc816047a8",
+      "adjudicationTx": "0xb451e747eb2f833e431ce746dcaed2c7a8df49ad179dae8949031e832301a497",
+      "consensus": "MAJORITY_AGREE",
+      "execution": "FINISHED_WITH_RETURN",
+      "votes": {
+        "IDLE": 2,
+        "AGREE": 3
+      },
+      "stateHash": "06679c5de30c9a99917ff5c1831da130fbf83eb10d73291ae431b8ee430adb11",
+      "stateHashesIdentical": true
+    },
+    "5": {
+      "case": 8,
+      "reportTx": "0x5280fe8801663292e6629712142d798694a63ac204a3e454792ade8281fc69d7",
+      "adjudicationTx": "0xb310bd280c1e8a2b8a379978ae449db26abbd4c7db2b173ab585e3f9c07c9d76",
+      "consensus": "MAJORITY_AGREE",
+      "execution": "FINISHED_WITH_RETURN",
+      "votes": {
+        "AGREE": 3,
+        "IDLE": 2
+      },
+      "stateHash": "89f11444c291d21c24172ecf35ae65f0c314fbdfde3601e36e654464a5a71eb7",
       "stateHashesIdentical": true
     }
   }

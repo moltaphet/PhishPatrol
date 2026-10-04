@@ -16,6 +16,7 @@ function Vault({ brand }: { brand: Brand }) {
   const [busy, setBusy] = useState(false);
   const hue = brandHue(brand.name);
   const frozen = brand.pending > 0;
+  const isOwner = !wallet.address || wallet.address.toLowerCase() === brand.owner.toLowerCase();
   const demo = snapshot?.source === "demo";
   const wei = parseGen(amount);
 
@@ -50,9 +51,9 @@ function Vault({ brand }: { brand: Brand }) {
       >
         <div className="flex items-center justify-between">
           <BrandBadge name={brand.name} size="lg" />
-          <Chip tone={brand.active ? "green" : "neutral"}>
+          <Chip tone={!brand.active ? "neutral" : brand.verified ? "green" : "amber"}>
             <Icon.shield className="h-3 w-3" />
-            {brand.active ? "Protected" : "Retired"}
+            {!brand.active ? "Retired" : brand.verified ? "Protected" : "Pending verification"}
           </Chip>
         </div>
         <h3 className="mt-5 text-xl font-semibold tracking-tight text-zinc-50">{brand.name}</h3>
@@ -94,11 +95,11 @@ function Vault({ brand }: { brand: Brand }) {
               </motion.div>
             ) : (
               <motion.div key="actions" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={spring} className="flex gap-2">
-                <Button variant="glass" className="flex-1" disabled={frozen || !brand.active} onClick={() => setFunding(true)} title={frozen ? "Funding is frozen while a report is pending" : undefined}>
+                <Button variant="glass" className="flex-1" disabled={frozen || !brand.active || !isOwner} onClick={() => setFunding(true)} title={!isOwner ? "Only the brand owner can fund this pool" : frozen ? "Funding is frozen while a report is pending" : undefined}>
                   <Icon.plus className="h-4 w-4" />
                   Top up
                 </Button>
-                <Button variant="glass" className="flex-1" disabled={!brand.active} onClick={() => openReport({ brandId: brand.id })}>
+                <Button variant="glass" className="flex-1" disabled={!brand.active || !brand.verified} onClick={() => openReport({ brandId: brand.id })} title={!brand.verified ? "This brand has not been verified yet" : undefined}>
                   Report
                 </Button>
               </motion.div>

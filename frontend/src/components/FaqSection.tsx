@@ -12,7 +12,7 @@ const FAQS: { q: string; a: ReactNode }[] = [
     q: "How does PhishPatrol differentiate authentic mirrors from phishing drainers?",
     a: (
       <>
-        <p>Authentic sites are never guessed: a domain is official only if its brand registered it, by exact match. Everything else is judged on three signals.</p>
+        <p>Authentic sites are never guessed: a domain is official only if a governor-verified brand registered it, by exact match. Everything else is judged on three signals.</p>
         <ul className="mt-3 list-disc space-y-2 pl-5">
           <li><strong className="font-medium text-zinc-200">Host analysis.</strong> Code measures the edit distance between the suspect&apos;s main label and each official domain, and checks for the brand name inside the host (including look-alike digits and letters), punycode, and an official domain embedded in the host.</li>
           <li><strong className="font-medium text-zinc-200">Impersonation.</strong> Validators read the page title and visible text, and a model scores how closely it copies the brand on an unofficial host. This is a text judgement, not a pixel or DOM comparison.</li>
@@ -27,7 +27,7 @@ const FAQS: { q: string; a: ReactNode }[] = [
     a: (
       <>
         <p>Spam is made expensive rather than impossible. Every report needs a bond of {code("max(0.1 GEN, 2%)")} of the brand&apos;s pool. If the target is unreachable, returns a non-2xx status, is empty, or is over 4 MiB, the report is voided and a 20% bandwidth fee is kept. A false positive loses half its bond to the brand and half to the protocol.</p>
-        <p className="mt-3">Only one report per host can be pending, and reports are adjudicated strictly in order. A stalled report is voided with a full refund after 24 hours and repeated failures, or after 7 days regardless.</p>
+        <p className="mt-3">Only one report per host can be pending, and reports can only target brands the governor has verified. Reports settle independently, so one stuck page never blocks another. A report nobody could settle can be voided with a full refund by its reporter after 2 hours, or by anyone after 24 hours.</p>
       </>
     ),
   },
@@ -53,7 +53,7 @@ const FAQS: { q: string; a: ReactNode }[] = [
     q: "How do brand owners manage and fund their anti-phishing bounty pools?",
     a: (
       <>
-        <p>Call {code("register_brand")} with the brand name, its official domains and a seed of at least 0.5 GEN. Names and domains are unique. Anyone can top the pool up later with {code("fund_bounty")}.</p>
+        <p>Call {code("register_brand")} with the brand name, its official domains and a seed of at least 0.5 GEN. Names and domains are unique, and the governor must verify the brand before it can be reported against. Only the owner (or governor) can top the pool up later with {code("fund_bounty")}, so a withdrawal can only ever return the owner&apos;s own deposits plus any slashed-bond share.</p>
         <p className="mt-3">Funding is frozen while any report against the brand is pending, so nobody can change the reward under a reporter who has already posted a bond. It reopens once those reports settle. Half of every slashed false-positive bond also flows into the brand&apos;s pool.</p>
       </>
     ),

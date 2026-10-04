@@ -4,9 +4,10 @@
 # PhishPatrol -- autonomous Web3 anti-phishing firewall and scam-domain
 # adjudication oracle.
 #
-# Brands register their official domains and seed a bounty pool. Anyone may
-# report a suspect URL against a brand by posting a bond. Reports are
-# adjudicated strictly in FIFO order: every validator independently fetches the
+# Brands register their official domains and seed a bounty pool; the governor
+# verifies a brand before reports can target it. Anyone may report a suspect URL
+# against a verified brand by posting a bond. Any pending report can be
+# adjudicated independently: every validator independently fetches the
 # suspect page (status, headers, body), the contract computes deterministic
 # ground-truth signals in code (lexical lookalike analysis, drainer / credential
 # harvesting signatures), the LLM scores three threat dimensions, and the
@@ -58,7 +59,9 @@ ERR_OFFICIAL_DOMAIN = "ERR_OFFICIAL_DOMAIN"
 ERR_ALREADY_BLACKLISTED = "ERR_ALREADY_BLACKLISTED"
 ERR_DUPLICATE_REPORT = "ERR_DUPLICATE_REPORT"
 ERR_NOT_PENDING = "ERR_NOT_PENDING"
-ERR_NOT_QUEUE_HEAD = "ERR_NOT_QUEUE_HEAD"
+ERR_BRAND_UNVERIFIED = "ERR_BRAND_UNVERIFIED"
+ERR_NOT_BRAND_OWNER = "ERR_NOT_BRAND_OWNER"
+ERR_NOT_BLACKLISTED = "ERR_NOT_BLACKLISTED"
 ERR_NOT_STALE = "ERR_NOT_STALE"
 ERR_NO_BALANCE = "ERR_NO_CLAIMABLE_BALANCE"
 ERR_NOTHING_TO_SWEEP = "ERR_NOTHING_TO_SWEEP"
@@ -76,6 +79,9 @@ VERDICT_CONFIRMED = "CONFIRMED_PHISHING"
 VERDICT_REJECTED = "REJECTED_FALSE_POSITIVE"
 VERDICT_VOID = "AMBIGUOUS_VOID"
 VERDICT_STALE = "STALE_VOID"
+APPEAL_UPHELD = "BLACKLIST_REMOVED"
+APPEAL_DENIED = "APPEAL_DENIED"
+APPEAL_INCONCLUSIVE = "APPEAL_INCONCLUSIVE"
 # Internal only: the round could not produce a verdict (LLM unusable). Never
 # settles anything; it is counted and the report stays at the head of the queue.
 VERDICT_EXEC_FAILURE = "EXEC_FAILURE"
@@ -92,9 +98,10 @@ SLASH_BRAND_BPS = 5000  # 50% of a slashed bond compensates the brand
 BPS = 10000
 
 # --- Liveness ----------------------------------------------------------------
-STALE_AFTER = 24 * 3600  # head-of-line report becomes voidable ...
-MIN_EXEC_FAILURES = 2  # ... after this many recorded failed rounds
-HARD_STALE_AFTER = 7 * 24 * 3600  # backstop: voidable regardless of recorded failures
+STALE_AFTER = 2 * 3600  # a pending report becomes voidable by its reporter (or the governor) ...
+PUBLIC_STALE_AFTER = 24 * 3600  # ... and by anyone after this long, so a stranger cannot void it early
+APPEAL_BOND = ATTO // 2  # 0.5 GEN to challenge a blacklist entry
+SCORE_TOLERANCE = 25  # max per-dimension gap between the leader's scores and a validator's own
 
 # --- Input / content limits --------------------------------------------------
 MAX_URL_LEN = 2048
@@ -527,6 +534,7 @@ class TargetBrand:
     canonical_domains: str  # JSON array of canonical hosts
     bounty_pool: u256
     is_active: bool
+    is_verified: bool
     created_at: u256
 
 
@@ -548,6 +556,7 @@ class PhishingReport:
     malicious_score: u256
     exec_failures: u256
     resolved_at: u256
+    overturned: bool
 
 
 class PhishPatrol(gl.contract.Contract):
@@ -559,7 +568,7 @@ class PhishPatrol(gl.contract.Contract):
     reports: TreeMap[u256, PhishingReport]
     pending_reports_queue: DynArray[u256]
     queue_head: u256
-    head_since: u256
+    pending_total: u256
 
     blacklisted_hosts: TreeMap[str, bool]
     host_to_report_id: TreeMap[str, u256]
@@ -580,7 +589,7 @@ class PhishPatrol(gl.contract.Contract):
         self.next_brand_id = 1
         self.next_report_id = 1
         self.queue_head = 0
-        self.head_since = 0
+        self.pending_total = 0
         self.total_bounties = 0
         self.total_locked_bonds = 0
         self.total_claimable = 0
@@ -591,7 +600,7 @@ class PhishPatrol(gl.contract.Contract):
         return int(datetime.now(timezone.utc).timestamp())
 
     def _pending_len(self) -> int:
-        return len(self.pending_reports_queue) - int(self.queue_head)
+        return int(self.pending_total)
 
     def _credit(self, who: Address, amount: int) -> None:
         if amount <= 0:
@@ -627,18 +636,24 @@ class PhishPatrol(gl.contract.Contract):
             + int(self.total_claimable) + int(self.protocol_vault)
         )
 
-    def _advance_queue(self) -> None:
-        self.queue_head += 1
-        self.head_since = self._now()
+    def _compact_queue(self) -> None:
+        """The queue is a reference list, not a gate. Skip the resolved prefix so
+        listing pending reports stays proportional to what is actually pending."""
+        n = len(self.pending_reports_queue)
+        head = int(self.queue_head)
+        while head < n and int(self.reports[int(self.pending_reports_queue[head])].status) != STATUS_PENDING:
+            head += 1
+        self.queue_head = head
 
     def _release_report(self, r: PhishingReport) -> None:
         """Bookkeeping common to every terminal transition: the bond leaves the
-        locked bucket, the host and brand stop being pending, the queue
-        advances."""
+        locked bucket and the host and brand stop being pending."""
         self.total_locked_bonds -= r.bond_amount
         self.host_pending[r.canonical_host] = False
         self.brand_pending[r.brand_id] = int(self.brand_pending[r.brand_id]) - 1
-        self._advance_queue()
+        self.pending_total -= 1
+        self.reports[int(r.report_id)] = r
+        self._compact_queue()
 
     # ------------------------------------------------------------------ views
     @gl.public.view
@@ -671,6 +686,7 @@ class PhishPatrol(gl.contract.Contract):
             "canonical_domains": json.loads(b.canonical_domains),
             "bounty_pool": int(b.bounty_pool),
             "is_active": b.is_active,
+            "is_verified": b.is_verified,
             "pending_reports": int(self.brand_pending[brand_id]) if brand_id in self.brand_pending else 0,
             "created_at": int(b.created_at),
         }
@@ -694,6 +710,7 @@ class PhishPatrol(gl.contract.Contract):
             "malicious_score": int(r.malicious_score),
             "exec_failures": int(r.exec_failures),
             "resolved_at": int(r.resolved_at),
+            "overturned": r.overturned,
         }
 
     @gl.public.view
@@ -720,13 +737,17 @@ class PhishPatrol(gl.contract.Contract):
 
     @gl.public.view
     def get_queue_state(self) -> dict:
-        head = int(self.queue_head)
-        pending = [int(self.pending_reports_queue[i]) for i in range(head, len(self.pending_reports_queue))]
+        """Pending reports, oldest first. Informational: any of them may be
+        adjudicated at any time."""
+        pending = []
+        for i in range(int(self.queue_head), len(self.pending_reports_queue)):
+            rid = int(self.pending_reports_queue[i])
+            if int(self.reports[rid].status) == STATUS_PENDING:
+                pending.append(rid)
         return {
-            "head_report_id": pending[0] if pending else 0,
+            "oldest_pending_id": pending[0] if pending else 0,
             "pending_count": len(pending),
             "pending_ids": pending,
-            "head_since": int(self.head_since),
         }
 
     @gl.public.view
@@ -765,7 +786,9 @@ class PhishPatrol(gl.contract.Contract):
     def register_brand(self, brand_name: str, canonical_domains: list[str]) -> u256:
         """Registers a brand with its official domains. The attached value
         (>= 0.5 GEN) seeds the bounty pool. A brand name and an official domain
-        can each belong to only one active brand."""
+        can each belong to only one active brand. The brand starts UNVERIFIED
+        (unless the governor registers it) and cannot be reported against until
+        the governor calls verify_brand."""
         if gl.message.value < MIN_BRAND_SEED:
             raise gl.vm.UserError(f"{ERR_INSUFFICIENT_SEED} minimum seed is 0.5 GEN")
         name = brand_name.strip()
@@ -802,6 +825,7 @@ class PhishPatrol(gl.contract.Contract):
             canonical_domains=json.dumps(hosts),
             bounty_pool=gl.message.value,
             is_active=True,
+            is_verified=gl.message.sender_address == self.governor,
             created_at=self._now(),
         )
         self.brand_name_key[key] = brand_id
@@ -813,10 +837,14 @@ class PhishPatrol(gl.contract.Contract):
 
     @gl.public.write.payable
     def fund_bounty(self, brand_id: u256) -> None:
-        """Tops up a brand's bounty pool. Frozen while any report against the
-        brand awaits adjudication: otherwise a funder could move the reward
-        under a reporter who sized a bond against the old pool."""
+        """Tops up a brand's bounty pool. Only the brand's owner or the governor
+        may fund it, so deactivate_brand can never hand a stranger's deposit to
+        the owner. Frozen while any report against the brand awaits
+        adjudication: otherwise the reward could move under a reporter who sized
+        a bond against the old pool."""
         b = self._brand(brand_id)
+        if gl.message.sender_address != b.owner and gl.message.sender_address != self.governor:
+            raise gl.vm.UserError(f"{ERR_NOT_BRAND_OWNER} only the brand owner or governor may fund the pool")
         if not b.is_active:
             raise gl.vm.UserError(f"{ERR_BRAND_INACTIVE} {brand_id}")
         if gl.message.value == 0:
@@ -856,15 +884,19 @@ class PhishPatrol(gl.contract.Contract):
     # ----------------------------------------------------------------- reports
     @gl.public.write.payable
     def report_phishing(self, brand_id: u256, suspect_url: str) -> u256:
-        """Files a report and queues it. The bond is max(0.1 GEN, 2% of the
+        """Files a report against a verified brand. The bond is max(0.1 GEN, 2% of the
         brand's pool); anything attached above it is credited straight back."""
         b = self._brand(brand_id)
         if not b.is_active:
             raise gl.vm.UserError(f"{ERR_BRAND_INACTIVE} {brand_id}")
+        if not b.is_verified:
+            raise gl.vm.UserError(f"{ERR_BRAND_UNVERIFIED} {brand_id} has not been verified by the governor")
         host, url = _canonicalize(suspect_url)
 
-        if host in self.domain_brand:
-            raise gl.vm.UserError(f"{ERR_OFFICIAL_DOMAIN} {host} is an official domain")
+        # Scoped to the TARGET brand only: another brand's domain is not exempt
+        # here, it simply goes to adjudication like any other host.
+        if host in json.loads(b.canonical_domains):
+            raise gl.vm.UserError(f"{ERR_OFFICIAL_DOMAIN} {host} is an official domain of this brand")
         covering = self._blacklist_hit(host)
         if covering != "":
             raise gl.vm.UserError(f"{ERR_ALREADY_BLACKLISTED} {covering}")
@@ -894,10 +926,10 @@ class PhishPatrol(gl.contract.Contract):
             malicious_score=0,
             exec_failures=0,
             resolved_at=0,
+            overturned=False,
         )
-        if self._pending_len() == 0:
-            self.head_since = now
         self.pending_reports_queue.append(report_id)
+        self.pending_total += 1
         self.host_pending[host] = True
         self.brand_pending[brand_id] = int(self.brand_pending[brand_id]) + 1
         self.total_locked_bonds += bond
@@ -907,15 +939,13 @@ class PhishPatrol(gl.contract.Contract):
 
     @gl.public.write
     def adjudicate_report(self, report_id: u256) -> str:
-        """Adjudicates the report at the head of the FIFO queue. Anyone may
-        call it. Returns the verdict, or EXEC_FAILURE when the round could not
-        score the page (counted, nothing settled)."""
+        """Adjudicates one pending report. Reports are independent: there is no
+        queue order, so one stuck page can never block another. Anyone may call
+        it. Returns the verdict, or EXEC_FAILURE when the round could not score
+        the page (counted, nothing settled)."""
         r = self._report(report_id)
         if int(r.status) != STATUS_PENDING:
             raise gl.vm.UserError(f"{ERR_NOT_PENDING} report {report_id}")
-        head = int(self.queue_head)
-        if head >= len(self.pending_reports_queue) or int(self.pending_reports_queue[head]) != report_id:
-            raise gl.vm.UserError(f"{ERR_NOT_QUEUE_HEAD} report {report_id} is not first in line")
 
         b = self._brand(int(r.brand_id))
         out = self._evaluate(r.suspect_url, r.canonical_host, b.brand_name, json.loads(b.canonical_domains))
@@ -959,7 +989,6 @@ class PhishPatrol(gl.contract.Contract):
 
         self.target_brands[int(r.brand_id)] = b
         self._release_report(r)
-        self.reports[report_id] = r
         return verdict
 
     def _evaluate(self, url: str, host: str, brand_name: str, domains: list[str]) -> dict:
@@ -980,40 +1009,54 @@ class PhishPatrol(gl.contract.Contract):
                 VERDICT_CONFIRMED, VERDICT_REJECTED, VERDICT_VOID, VERDICT_EXEC_FAILURE,
             ):
                 return False
-            # A confirming/rejecting leader must be consistent with its own scores.
-            if lv["verdict"] in (VERDICT_CONFIRMED, VERDICT_REJECTED):
-                if _derive_verdict(int(lv["lexical"]), int(lv["impersonation"]), int(lv["malicious"])) != lv["verdict"]:
+            scored = lv["verdict"] in (VERDICT_CONFIRMED, VERDICT_REJECTED)
+            if scored:
+                # A scoring leader must be consistent with its own scores ...
+                for k in ("lexical", "impersonation", "malicious"):
+                    v = lv.get(k)
+                    if isinstance(v, bool) or not isinstance(v, int) or v < 0 or v > 100:
+                        return False
+                if _derive_verdict(lv["lexical"], lv["impersonation"], lv["malicious"]) != lv["verdict"]:
+                    return False
+                reasoning = lv.get("reasoning")
+                if not isinstance(reasoning, str) or len(reasoning) > REASONING_CHARS or "<" in reasoning or ">" in reasoning:
                     return False
             mine = _analyse(url, host, brand_name, domains)
-            return mine["verdict"] == lv["verdict"]
+            if mine["verdict"] != lv["verdict"]:
+                return False
+            if scored:
+                # ... and close to what this validator measured itself, so a rogue
+                # leader cannot attach fabricated scores to the right verdict.
+                for k in ("lexical", "impersonation", "malicious"):
+                    gap = lv[k] - mine[k]
+                    if gap > SCORE_TOLERANCE or gap < -SCORE_TOLERANCE:
+                        return False
+            return True
 
         return gl.vm.run_nondet(leader, validator)
 
     @gl.public.write
     def void_stale_report(self, report_id: u256) -> None:
-        """Head-of-line protection. Voids the head report with a 100% bond
-        refund (no fee) once it has been first in line for 24 hours AND at least
-        two adjudication rounds failed on it, or for 7 days regardless (failed
-        rounds that deadlock leave no on-chain trace, so the age backstop is the
-        only liveness guarantee against them)."""
+        """Rescues a report nobody could settle. After 2 hours pending, the
+        reporter (or the governor) may void it with a 100% bond refund and no
+        fee; after 24 hours anyone may. The two-step window stops a stranger
+        voiding a report just to keep a host off the blacklist."""
         r = self._report(report_id)
         if int(r.status) != STATUS_PENDING:
             raise gl.vm.UserError(f"{ERR_NOT_PENDING} report {report_id}")
-        head = int(self.queue_head)
-        if head >= len(self.pending_reports_queue) or int(self.pending_reports_queue[head]) != report_id:
-            raise gl.vm.UserError(f"{ERR_NOT_QUEUE_HEAD} report {report_id} is not first in line")
-        age = self._now() - int(self.head_since)
-        soft = age >= STALE_AFTER and int(r.exec_failures) >= MIN_EXEC_FAILURES
-        if not (soft or age >= HARD_STALE_AFTER):
-            raise gl.vm.UserError(f"{ERR_NOT_STALE} head age {age}s, failures {int(r.exec_failures)}")
+        age = self._now() - int(r.timestamp)
+        if age < STALE_AFTER:
+            raise gl.vm.UserError(f"{ERR_NOT_STALE} pending {age}s, needs {STALE_AFTER}s")
+        sender = gl.message.sender_address
+        if age < PUBLIC_STALE_AFTER and sender != r.reporter and sender != self.governor:
+            raise gl.vm.UserError(f"{ERR_UNAUTHORIZED} only the reporter or governor may void before 24h")
 
         r.status = STATUS_VOIDED
         r.verdict = VERDICT_STALE
-        r.consensus_reasoning = "Voided: stalled at the head of the queue; bond refunded in full."
+        r.consensus_reasoning = "Voided: pending too long without settlement; bond refunded in full."
         r.resolved_at = self._now()
         self._credit(r.reporter, int(r.bond_amount))
         self._release_report(r)
-        self.reports[report_id] = r
 
     # ------------------------------------------------------------- settlement
     @gl.public.write
@@ -1050,6 +1093,90 @@ class PhishPatrol(gl.contract.Contract):
             self.protocol_vault = amount
             raise gl.vm.UserError(ERR_TRANSFER)
         return amount
+
+    # ------------------------------------------------- verification and appeals
+    @gl.public.write
+    def verify_brand(self, brand_id: u256) -> None:
+        """Governor attests that the registrant really owns the brand. Only a
+        verified brand can be reported against, so a squatter cannot register a
+        legitimate dApp's name and use the oracle to blacklist its rivals."""
+        if gl.message.sender_address != self.governor:
+            raise gl.vm.UserError(f"{ERR_UNAUTHORIZED} governor only")
+        b = self._brand(brand_id)
+        b.is_verified = True
+        self.target_brands[brand_id] = b
+
+    @gl.public.write
+    def unverify_brand(self, brand_id: u256) -> None:
+        if gl.message.sender_address != self.governor:
+            raise gl.vm.UserError(f"{ERR_UNAUTHORIZED} governor only")
+        b = self._brand(brand_id)
+        b.is_verified = False
+        self.target_brands[brand_id] = b
+
+    def _overturn(self, host: str) -> None:
+        self.blacklisted_hosts[host] = False
+        rid = int(self.host_to_report_id[host])
+        r = self.reports[rid]
+        r.overturned = True
+        self.reports[rid] = r
+
+    @gl.public.write
+    def unblacklist_host(self, host_or_url: str) -> None:
+        """Governor review: removes an erroneous blacklist entry directly. The
+        report keeps its CONFIRMED status (the reward was already paid) and is
+        flagged `overturned`; the host can be reported again."""
+        if gl.message.sender_address != self.governor:
+            raise gl.vm.UserError(f"{ERR_UNAUTHORIZED} governor only")
+        host = _canonicalize(host_or_url)[0]
+        if host not in self.blacklisted_hosts or not self.blacklisted_hosts[host]:
+            raise gl.vm.UserError(f"{ERR_NOT_BLACKLISTED} {host}")
+        self._overturn(host)
+
+    @gl.public.write.payable
+    def appeal_blacklist(self, host_or_url: str) -> str:
+        """Anyone can challenge a blacklisted host by posting a 0.5 GEN bond; the
+        validators re-read the page now.
+          * Page no longer scores as phishing -> entry removed, bond refunded.
+          * Still phishing                    -> appeal denied, bond slashed 50/50
+                                                 (brand pool / vault).
+          * Unreachable                       -> inconclusive, 20% fee kept.
+          * Model failure                     -> nothing changes, bond refunded.
+        Only an exact blacklisted host can be appealed (appeal the parent for a
+        covered subdomain). The contract cannot prove who owns a domain, so the
+        bond, not identity, is what gates an appeal."""
+        host = _canonicalize(host_or_url)[0]
+        if host not in self.blacklisted_hosts or not self.blacklisted_hosts[host]:
+            raise gl.vm.UserError(f"{ERR_NOT_BLACKLISTED} {host} is not itself blacklisted")
+        paid = int(gl.message.value)
+        if paid < APPEAL_BOND:
+            raise gl.vm.UserError(f"{ERR_INSUFFICIENT_BOND} appeal bond is {APPEAL_BOND}")
+        r = self.reports[int(self.host_to_report_id[host])]
+        b = self._brand(int(r.brand_id))
+        sender = gl.message.sender_address
+        out = self._evaluate(r.suspect_url, host, b.brand_name, json.loads(b.canonical_domains))
+        verdict = out["verdict"]
+        self._credit(sender, paid - APPEAL_BOND)  # excess over the bond is always returned
+
+        if verdict == VERDICT_REJECTED:
+            self._overturn(host)
+            self._credit(sender, APPEAL_BOND)
+            return APPEAL_UPHELD
+        if verdict == VERDICT_CONFIRMED:
+            to_brand = APPEAL_BOND * SLASH_BRAND_BPS // BPS if b.is_active else 0
+            if to_brand > 0:
+                b.bounty_pool += to_brand
+                self.target_brands[int(r.brand_id)] = b
+                self.total_bounties += to_brand
+            self.protocol_vault += APPEAL_BOND - to_brand
+            return APPEAL_DENIED
+        if verdict == VERDICT_VOID:
+            fee = APPEAL_BOND * VOID_FEE_BPS // BPS
+            self.protocol_vault += fee
+            self._credit(sender, APPEAL_BOND - fee)
+            return APPEAL_INCONCLUSIVE
+        self._credit(sender, APPEAL_BOND)  # EXEC_FAILURE: undo, nothing was decided
+        return VERDICT_EXEC_FAILURE
 
     @gl.public.write
     def transfer_governor(self, new_governor_hex: str) -> None:

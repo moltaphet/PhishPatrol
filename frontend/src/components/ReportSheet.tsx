@@ -25,7 +25,7 @@ const friendly = (e: unknown) => {
 
 function SheetBody({ onClose }: { onClose: () => void }) {
   const { snapshot, sheet, wallet, connect, refresh, toast, addDemoReport } = useStore();
-  const brands = useMemo(() => (snapshot?.brands ?? []).filter((b) => b.active), [snapshot]);
+  const brands = useMemo(() => (snapshot?.brands ?? []).filter((b) => b.active && b.verified), [snapshot]);
   const [brandId, setBrandId] = useState<number>(sheet.prefill.brandId ?? brands[0]?.id ?? 0);
   const [url, setUrl] = useState(sheet.prefill.url ?? "");
   const [busy, setBusy] = useState(false);

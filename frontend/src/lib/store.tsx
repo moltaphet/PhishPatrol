@@ -93,7 +93,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Initial load and polling.
   useEffect(() => {
     const first = setTimeout(() => void refresh(), 0);
-    const t = setInterval(() => void refresh(), 45000);
+    // Poll gently, and not at all while the tab is hidden: the public RPC is rate limited.
+    const t = setInterval(() => { if (!document.hidden) void refresh(); }, 90000);
     return () => { clearTimeout(first); clearInterval(t); };
   }, [refresh]);
 
@@ -114,7 +115,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
     void ping();
-    const t = setInterval(() => void ping(), 30000);
+    const t = setInterval(() => { if (!document.hidden) void ping(); }, 60000);
     return () => { alive = false; clearInterval(t); };
   }, []);
 

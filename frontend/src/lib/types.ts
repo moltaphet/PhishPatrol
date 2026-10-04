@@ -6,6 +6,9 @@ export interface Brand {
   domains: string[];
   pool: bigint;
   active: boolean;
+  /** Governor-verified. Only verified brands are protected and can be reported against. */
+  verified: boolean;
+  owner: string;
   pending: number;
 }
 
