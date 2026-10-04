@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-obsidian: #050508;
+  --color-obsidian: #07070a;
   --color-raised: #0a0a0c;
   --color-sys-green: #34c759;
   --color-sys-red: #ff3b30;
@@ -16,13 +16,13 @@
 }
 
 html {
-  background: #050508;
+  background: #07070a;
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   min-height: 100dvh;
-  background: transparent; /* html paints #050508; an opaque body would hide the ambient layer */
+  background: transparent; /* html paints #07070a; an opaque body would hide the ambient layer */
   color: #f4f4f5;
   font-family: var(--font-sans);
   font-feature-settings: "ss01", "cv11";
@@ -79,16 +79,77 @@ body {
   }
 }
 
+/* Atmospheric canvas. Each layer is a plain gradient (no filter), so it stays cheap to composite. */
 .ambient {
   position: fixed;
   inset: 0;
   z-index: -1;
+  overflow: hidden;
   pointer-events: none;
-  background:
-    radial-gradient(60rem 38rem at 12% -8%, rgb(0 113 227 / 0.28), transparent 62%),
-    radial-gradient(48rem 34rem at 92% 6%, rgb(52 199 89 / 0.14), transparent 62%),
-    radial-gradient(54rem 40rem at 50% 110%, rgb(255 59 48 / 0.12), transparent 60%),
-    #050508;
+  background: #07070a;
+}
+
+.orb {
+  position: absolute;
+  border-radius: 9999px;
+  will-change: transform;
+}
+.orb-indigo {
+  width: 62rem; height: 62rem; left: -18rem; top: -26rem;
+  background: radial-gradient(closest-side, rgb(99 102 241 / 0.1), transparent);
+  animation: drift-a 26s ease-in-out infinite;
+}
+.orb-cyan {
+  width: 54rem; height: 54rem; right: -16rem; top: -14rem;
+  background: radial-gradient(closest-side, rgb(34 211 238 / 0.1), transparent);
+  animation: drift-b 32s ease-in-out infinite;
+}
+.orb-emerald {
+  width: 58rem; height: 58rem; left: 22%; top: 38%;
+  background: radial-gradient(closest-side, rgb(52 199 89 / 0.08), transparent);
+  animation: drift-c 38s ease-in-out infinite;
+}
+.orb-crimson-left {
+  width: 40rem; height: 40rem; left: -20rem; bottom: -14rem;
+  background: radial-gradient(closest-side, rgb(255 59 48 / 0.07), transparent);
+  animation: drift-b 30s ease-in-out infinite reverse;
+}
+.orb-crimson-right {
+  width: 40rem; height: 40rem; right: -20rem; bottom: 8%;
+  background: radial-gradient(closest-side, rgb(255 59 48 / 0.06), transparent);
+  animation: drift-a 34s ease-in-out infinite reverse;
+}
+
+@keyframes drift-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(4rem, 3rem, 0) scale(1.08); }
+}
+@keyframes drift-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.04); }
+  50% { transform: translate3d(-3.5rem, 4rem, 0) scale(0.94); }
+}
+@keyframes drift-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.96); }
+  50% { transform: translate3d(3rem, -3rem, 0) scale(1.1); }
+}
+
+/* Micro-dot grid, faded toward the edges. */
+.dot-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image: radial-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 30%, #000 20%, transparent 78%);
+  mask-image: radial-gradient(ellipse at 50% 30%, #000 20%, transparent 78%);
+}
+
+/* Film grain at 3% opacity: breaks up gradient banding and adds tactile texture. */
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 .scrollbar-none {

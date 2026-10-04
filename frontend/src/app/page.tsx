@@ -1,4 +1,7 @@
+import { AboutSection } from "@/components/AboutSection";
+import { Ambient } from "@/components/Ambient";
 import { BrandVaults } from "@/components/BrandVaults";
+import { FaqSection } from "@/components/FaqSection";
 import { Header } from "@/components/Header";
 import { LiveFeed } from "@/components/LiveFeed";
 import { ReportSheet } from "@/components/ReportSheet";
@@ -10,7 +13,7 @@ import { AppProvider } from "@/lib/store";
 export default function Home() {
   return (
     <AppProvider>
-      <div className="ambient" aria-hidden />
+      <Ambient />
       <Header />
       <main id="top" className="mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6">
         <section id="inspect" className="scroll-mt-28 pb-20 pt-16 text-center sm:pt-24">
@@ -27,6 +30,8 @@ export default function Home() {
         <div className="space-y-24">
           <BrandVaults />
           <LiveFeed />
+          <AboutSection />
+          <FaqSection />
         </div>
 
         <footer className="mt-24 border-t border-white/[0.07] pt-8 text-center text-xs leading-relaxed text-zinc-500">

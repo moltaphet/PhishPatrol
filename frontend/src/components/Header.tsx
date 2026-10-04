@@ -12,6 +12,8 @@ const NAV = [
   { href: "#inspect", label: "Inspect" },
   { href: "#vaults", label: "Vaults" },
   { href: "#feed", label: "Feed" },
+  { href: "#about", label: "About" },
+  { href: "#faq", label: "FAQ" },
 ];
 
 function NetworkPill() {
